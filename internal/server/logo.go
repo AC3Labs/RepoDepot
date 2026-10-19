@@ -251,7 +251,9 @@ func (s *Server) downloadLogo(ctx context.Context, full, src string) string {
 	if ext == "" {
 		return ""
 	}
-	h := sha1.Sum([]byte(full))
+	// Named after the image itself, so a changed logo gets a new address
+	// and browsers never show a stale cached copy.
+	h := sha1.Sum(body)
 	name := strings.ReplaceAll(full, "/", "__") + "-" + hex.EncodeToString(h[:4]) + ext
 	os.MkdirAll(s.logoDir(), 0o755)
 	if os.WriteFile(filepath.Join(s.logoDir(), name), body, 0o644) != nil {
