@@ -166,11 +166,26 @@
             </div>
           </template>
 
+          <template x-if="form.method==='track'">
+            <div class="col">
+              <div class="notice info">{{template "i-info"}}<div>The Repo Depot won't install, change or remove anything for this. It watches GitHub for newer versions, shows them in My Depot and notifies you. After you update it yourself, press <b>Mark updated</b>.</div></div>
+              <div class="form-grid">
+                <div class="field"><label>Version installed now</label><input class="input mono" x-model="form.version" list="rd-versions" placeholder="e.g. v1.2.3">
+                  <datalist id="rd-versions"><template x-for="r in (info.inspect.releases||[])" :key="r.tag_name"><option :value="r.tag_name"></option></template></datalist>
+                  <span class="help" x-text="form.track==='commit' ? 'The commit it was built from.' : 'The tag or release name, exactly as on GitHub.'"></span></div>
+                <div class="field"><label>Its web address <span class="muted small">(optional)</span></label><input class="input" x-model="form.options.open_url" placeholder="http://192.168.0.70:8080"><span class="help">Adds an Open button.</span></div>
+              </div>
+              <template x-for="m in fits.filter(f=>form.machines.includes(f.id))" :key="'t'+m.id">
+                <div class="field"><label x-text="'Where it is on '+m.name"></label><input class="input mono" x-model="form.dirs[m.id]" placeholder="/home/me/apps/thing"></div>
+              </template>
+            </div>
+          </template>
+
           <template x-if="form.method==='source'">
             <div class="field"><label>Build or install command <span class="muted small">(optional)</span></label><textarea class="textarea" style="min-height:70px" x-model="form.options.post_install" placeholder="make && make install"></textarea><span class="help">Runs in the source folder after every install and update.</span></div>
           </template>
 
-          <template x-if="form.method!=='compose'">
+          <template x-if="form.method!=='compose' && form.method!=='track'">
             <div class="col">
               <label class="switch"><input type="checkbox" x-model="form.options.service"><span class="track"></span><span>Run it as a service <span class="muted small">(starts at boot, restarts if it stops)</span></span></label>
               <div class="form-grid" x-show="form.options.service">
@@ -193,15 +208,16 @@
                   <span class="help" x-text="form.track==='commit' ? 'Every change pushed to the branch counts as an update.' : form.track==='tag' ? 'Every new tag counts as an update.' : 'Only official releases count.'"></span>
                 </div>
                 <div class="field" x-show="form.track==='commit'"><label>Branch</label><input class="input" x-model="form.branch" :placeholder="repo.default_branch"></div>
-                <div class="field" x-show="form.track!=='commit' && info.inspect.releases && info.inspect.releases.length"><label>Install version</label>
+                <div class="field" x-show="form.method!=='track' && form.track!=='commit' && info.inspect.releases && info.inspect.releases.length"><label>Install version</label>
                   <select class="select" x-model="form.version"><option value="">Latest</option><template x-for="r in info.inspect.releases" :key="r.tag_name"><option :value="r.tag_name" x-text="r.tag_name"></option></template></select>
                 </div>
               </div>
-              <template x-for="m in fits.filter(f=>form.machines.includes(f.id))" :key="'d'+m.id">
+              <template x-for="m in fits.filter(f=>form.machines.includes(f.id) && form.method!=='track')" :key="'d'+m.id">
                 <div class="field"><label x-text="'Folder on '+m.name"></label><input class="input mono" x-model="form.dirs[m.id]"></div>
               </template>
-              <div class="field" x-show="form.method!=='source'"><label>Command after install <span class="muted small">(optional)</span></label><input class="input mono" x-model="form.options.post_install" placeholder=""></div>
-              <label class="switch"><input type="checkbox" x-model="form.auto_update"><span class="track"></span><span>Install updates automatically</span></label>
+              <div class="field" x-show="form.method!=='source' && form.method!=='track'"><label>Command after install <span class="muted small">(optional)</span></label><input class="input mono" x-model="form.options.post_install" placeholder=""></div>
+              <label class="switch" x-show="form.method!=='track'"><input type="checkbox" x-model="form.auto_update"><span class="track"></span><span>Install updates automatically</span></label>
+              <div class="field" x-show="form.method!=='track'"><label>Its web address <span class="muted small">(optional)</span></label><input class="input" x-model="form.options.open_url" placeholder="http://192.168.0.70:8080"><span class="help">Adds an Open button.</span></div>
               <label class="switch"><input type="checkbox" x-model="form.notify"><span class="track"></span><span>Notify me about updates</span></label>
             </div>
           </details>
@@ -212,7 +228,7 @@
         <button class="btn" @click="dlg=false">Cancel</button>
         <button class="btn primary" @click="install()" :disabled="busy || form.machines.length===0">
           <span class="spinner" x-show="busy" x-cloak></span>{{template "i-download"}}
-          <span x-text="form.machines.length>1 ? 'Install on '+form.machines.length+' machines' : 'Install'"></span>
+          <span x-text="form.method==='track' ? 'Track it' : form.machines.length>1 ? 'Install on '+form.machines.length+' machines' : 'Install'"></span>
         </button>
       </div>
     </div>

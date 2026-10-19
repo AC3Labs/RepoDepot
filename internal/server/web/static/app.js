@@ -60,10 +60,11 @@ const ICONS = {
   compose: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13h17c1 0 1.6-1 2-2-1-.5-2-.3-2.6.3C19 9 18 8 17 8c-.4 1.3-.2 2.3.3 3"/><path d="M3 13c0 4 3 7 8 7 6 0 9-3 10-7"/><path d="M5 10h3v3H5zM8 10h3v3H8zM11 10h3v3h-3zM8 7h3v3H8z"/></svg>',
   release: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg>',
   source: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 7-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></svg>',
+  track: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
 };
 const osIcon = os => ICONS[os] || ICONS.unknown;
 const methodIcon = m => ICONS[m] || ICONS.source;
-const methodLabel = m => ({ compose: "Docker Compose", release: "Release", source: "Source" }[m] || m);
+const methodLabel = m => ({ compose: "Docker Compose", release: "Release", source: "Source", track: "Track only" }[m] || m);
 
 function busy(a) { return ["installing", "updating", "uninstalling"].includes(a.status) || a.active_job > 0; }
 
@@ -129,7 +130,7 @@ function depot(apps, machines, view, lastCheck) {
   return {
     apps, machines, view: localStorage.getItem("depot-view") || view, lastCheck, checking: false,
     q: "", machine: "", filter: "all", selected: {}, timer: null,
-    get updatable() { return this.apps.filter(a => a.update_available && !busy(a)); },
+    get updatable() { return this.apps.filter(a => a.update_available && !busy(a) && a.method !== "track"); },
     get shown() {
       const q = this.q.toLowerCase();
       return this.apps.filter(a =>
@@ -174,6 +175,10 @@ function depot(apps, machines, view, lastCheck) {
     },
     async updateOne(a) {
       try { await api("POST", "/api/apps/" + a.id + "/update", {}); a.status = "updating"; toast("Updating " + a.name, "info"); this.schedule(); }
+      catch (e) { toast(e.message, "bad"); }
+    },
+    async markUpdated(a) {
+      try { await api("POST", "/api/apps/" + a.id + "/mark", {}); toast(a.name + " marked as " + a.latest_label); this.refresh(); }
       catch (e) { toast(e.message, "bad"); }
     },
     async updateIds(ids) {
@@ -292,16 +297,20 @@ function repoPage(full, machines, defaults) {
       this.dlg = true;
     },
     usable(m) {
+      if (this.form.method === "track") return true; // installed already; nothing is sent to it
       if (m.status !== "online" || (m.reason && m.reason.all)) return false;
       return !(m.reason && m.reason[this.form.method]);
     },
     whyNot(m) {
+      if (this.form.method === "track") return "";
       if (m.status !== "online") return "Offline";
       if (m.reason && m.reason.all) return m.reason.all;
       return (m.reason && m.reason[this.form.method]) || "";
     },
     methodChanged() {
       if (this.form.method === "release") this.form.track = "release";
+      if (this.form.method === "track") { for (const m of this.fits) this.form.dirs[m.id] = ""; }
+      else { for (const m of this.fits) if (!this.form.dirs[m.id]) this.form.dirs[m.id] = m.dir; }
       this.form.machines = this.form.machines.filter(id => this.usable(this.fits.find(f => f.id === id)));
       this.composeText = "";
     },
@@ -313,6 +322,7 @@ function repoPage(full, machines, defaults) {
     summary() {
       if (!this.info) return "";
       const t = { release: "releases", tag: "tags", commit: "commits" }[this.form.track];
+      if (this.form.method === "track") return "Track only · updates from " + t;
       return methodLabel(this.form.method) + " · updates from " + t + (this.form.auto_update ? " · automatic" : "");
     },
     async install() {
@@ -326,7 +336,10 @@ function repoPage(full, machines, defaults) {
         const r = await api("POST", "/api/install", body);
         const ok = r.results.filter(x => !x.error);
         for (const x of r.results.filter(x => x.error)) toast(x.machine + ": " + x.error, "bad");
-        if (ok.length) {
+        if (ok.length && f.method === "track") {
+          toast("Tracking " + name + " on " + ok.map(x => x.machine).join(", "));
+          setTimeout(() => { location.href = ok.length === 1 ? "/apps/" + ok[0].app_id : "/"; }, 400);
+        } else if (ok.length) {
           toast("Installing on " + ok.map(x => x.machine).join(", "), "info");
           setTimeout(() => { location.href = ok.length === 1 ? "/apps/" + ok[0].app_id : "/"; }, 400);
         }
@@ -341,7 +354,8 @@ function repoPage(full, machines, defaults) {
 function appPage(app, jobs) {
   return {
     a: app, jobs, tab: "activity", open: {}, removeData: false, saving: false, timer: null,
-    s: { track: app.track, branch: app.branch, auto_update: app.auto_update, notify: app.notify, options: Object.assign({}, app.options) },
+    s: { track: app.track, branch: app.branch, auto_update: app.auto_update, notify: app.notify, options: Object.assign({}, app.options),
+      installed: app.installed_ref, location: app.location || app.dir },
     start() {
       if (this.jobs.length) this.open[this.jobs[0].id] = this.jobs[0].status !== "done" || true;
       this.schedule();
@@ -368,6 +382,14 @@ function appPage(app, jobs) {
       catch (e) { toast(e.message, "bad"); }
     },
     update() { this.run("/update", {}, "Updating " + this.a.name); },
+    async findLogo() {
+      try { const r = await api("POST", "/api/apps/" + this.a.id + "/logo"); this.a.logo_url = r.logo_url + "?t=" + Date.now(); toast("Logo updated"); }
+      catch (e) { toast(e.message, "bad"); }
+    },
+    async markUpdated() {
+      try { await api("POST", "/api/apps/" + this.a.id + "/mark", {}); toast(this.a.name + " marked as " + this.a.latest_label); this.refresh(); }
+      catch (e) { toast(e.message, "bad"); }
+    },
     reinstall() { this.run("/reinstall", {}, "Reinstalling " + this.a.name); },
     async uninstall() {
       if (!confirm("Uninstall " + this.a.name + " from " + this.a.machine_name + (this.removeData ? " and delete its data" : "") + "?")) return;

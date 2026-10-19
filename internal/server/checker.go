@@ -131,7 +131,7 @@ func (s *Server) checkUpdates(ctx context.Context) int {
 					continue
 				}
 				found.Add(1)
-				if a.AutoUpdate && a.ActiveJob == 0 && a.MachineStatus != "offline" {
+				if a.AutoUpdate && a.Method != MethodTrack && a.ActiveJob == 0 && a.MachineStatus != "offline" {
 					if _, err := s.startJob(context.Background(), a, spec.ActionUpdate, t.Ref, false); err != nil {
 						log.Printf("auto-update of %s on %s: %v", a.Repo, a.MachineName, err)
 					}
@@ -224,7 +224,9 @@ func (s *Server) notifyUpdate(a *App, t *Target) {
 	body := fmt.Sprintf("%s → %s on %s", from, t.Label, a.MachineName)
 	page := fmt.Sprintf("/apps/%d", a.ID)
 	actions := []ntfyAction{{Action: "view", Label: "Open", URL: s.publicURL() + page}}
-	if s.settings.Bool("one_tap_updates") {
+	if a.Method == MethodTrack {
+		body += " (tracked: update it the usual way)"
+	} else if s.settings.Bool("one_tap_updates") {
 		actions = append(actions, ntfyAction{Action: "http", Label: "Update now", URL: s.hookURL(a.ID, t.Ref), Method: "POST", Clear: true})
 	}
 	if t.URL != "" {

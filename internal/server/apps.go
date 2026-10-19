@@ -26,6 +26,7 @@ type AppOptions struct {
 	ServiceArgs      string `json:"service_args,omitempty"`
 	LinkBinary       bool   `json:"link_binary,omitempty"`
 	Private          bool   `json:"private,omitempty"`
+	OpenURL          string `json:"open_url,omitempty"` // the app's own web address, for an "Open" button
 }
 
 type App struct {
@@ -244,11 +245,16 @@ func (r *Runner) release() {
 
 var errBusy = errors.New("this app already has a job running")
 
+var errTracked = errors.New("this app is tracked only: update it the way it was installed, then mark it updated here")
+
 // startJob prepares and queues an install, update or uninstall for an app.
 // ref "" means the latest version for the app's tracking.
 func (s *Server) startJob(ctx context.Context, app *App, action, ref string, removeData bool) (int64, error) {
 	if app.ActiveJob != 0 {
 		return 0, errBusy
+	}
+	if app.Method == MethodTrack {
+		return 0, errTracked
 	}
 	m, err := s.store.Machine(app.MachineID)
 	if err != nil {

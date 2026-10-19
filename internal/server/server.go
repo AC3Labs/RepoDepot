@@ -147,6 +147,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/apps/{id}/uninstall", a(s.apiUninstall))
 	mux.HandleFunc("POST /api/apps/{id}/unregister", a(s.apiUnregister))
 	mux.HandleFunc("POST /api/apps/{id}/settings", a(s.apiAppSettings))
+	mux.HandleFunc("POST /api/apps/{id}/mark", a(s.apiMarkUpdated))
+	mux.HandleFunc("POST /api/apps/{id}/logo", a(s.apiFindLogo))
 	mux.HandleFunc("POST /api/check", a(s.apiCheck))
 	mux.HandleFunc("GET /api/jobs", a(s.apiJobs))
 	mux.HandleFunc("GET /api/jobs/{id}", a(s.apiJob))

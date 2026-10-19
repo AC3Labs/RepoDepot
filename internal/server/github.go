@@ -402,7 +402,7 @@ func (g *GitHub) ReleaseByTag(ctx context.Context, full, tag string) (*Release, 
 
 func (g *GitHub) Tags(ctx context.Context, full string, ttl time.Duration) ([]Tag, error) {
 	var out []Tag
-	return out, g.getJSON(ctx, "/repos/"+full+"/tags?per_page=10", ttl, &out)
+	return out, g.getJSON(ctx, "/repos/"+full+"/tags?per_page=100", ttl, &out)
 }
 
 func (g *GitHub) Head(ctx context.Context, full, branch string, ttl time.Duration) (*Commit, error) {
@@ -414,6 +414,34 @@ func (g *GitHub) Contents(ctx context.Context, full, path string) ([]ContentEntr
 	var out []ContentEntry
 	err := g.getJSON(ctx, "/repos/"+full+"/contents/"+strings.TrimLeft(path, "/"), g.minutes("cache_repo_minutes"), &out)
 	return out, err
+}
+
+// Tree lists every file path in the repo at a branch (one request; GitHub
+// truncates huge repos, which is fine for finding a logo).
+func (g *GitHub) Tree(ctx context.Context, full, branch string) ([]string, error) {
+	var out struct {
+		Tree []struct {
+			Path string `json:"path"`
+			Type string `json:"type"`
+			Size int64  `json:"size"`
+		} `json:"tree"`
+	}
+	if err := g.getJSON(ctx, "/repos/"+full+"/git/trees/"+url.PathEscape(branch)+"?recursive=1", g.minutes("cache_repo_minutes"), &out); err != nil {
+		return nil, err
+	}
+	var paths []string
+	for _, e := range out.Tree {
+		if e.Type == "blob" && e.Size < 2<<20 {
+			paths = append(paths, e.Path)
+		}
+	}
+	return paths, nil
+}
+
+// File is one file's details, including where to download it.
+func (g *GitHub) File(ctx context.Context, full, path string) (*ContentEntry, error) {
+	e := &ContentEntry{}
+	return e, g.getJSON(ctx, "/repos/"+full+"/contents/"+strings.TrimLeft(path, "/"), g.minutes("cache_repo_minutes"), e)
 }
 
 // FileText fetches a small text file (a compose file to show the user).

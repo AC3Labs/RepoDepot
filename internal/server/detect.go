@@ -116,6 +116,7 @@ func (s *Server) inspect(ctx context.Context, full string) (*Inspection, error) 
 		in.Methods = append(in.Methods, MethodOK{spec.MethodRelease, "Release download", "Installs a file from release " + in.Latest.TagName + ", picked to suit each machine.", ""})
 	}
 	in.Methods = append(in.Methods, MethodOK{spec.MethodSource, "Source code", "Downloads the code and runs an optional build command you give it.", ""})
+	in.Methods = append(in.Methods, MethodOK{MethodTrack, "Track only", "Already installed some other way? Watch it for updates and get notified, without The Repo Depot touching it.", ""})
 
 	in.Recommended = in.Methods[0].Method
 	if p := s.settings.Get("prefer_method"); p != "auto" {
@@ -379,7 +380,7 @@ func (s *Server) latestTarget(ctx context.Context, repo *Repo, track, branch str
 		if len(tags) == 0 {
 			return nil, &GitHubError{Status: 404, Message: "This repo has no tags; track commits instead."}
 		}
-		t := tags[0]
+		t := highestTag(tags)
 		return &Target{Ref: t.Name, Label: t.Name, URL: repo.HTMLURL + "/releases/tag/" + t.Name}, nil
 	default:
 		if branch == "" {
@@ -392,6 +393,61 @@ func (s *Server) latestTarget(ctx context.Context, repo *Repo, track, branch str
 		msg, _, _ := strings.Cut(c.Commit.Message, "\n")
 		return &Target{Ref: c.SHA, Label: shortSHA(c.SHA) + " · " + truncate(msg, 60), URL: c.HTMLURL, Date: c.Commit.Author.Date}, nil
 	}
+}
+
+// MethodTrack is an app installed some other way: The Repo Depot only
+// watches it for updates and never sends its machine a job.
+const MethodTrack = "track"
+
+var digitRuns = regexp.MustCompile(`\d+`)
+
+// versionLess compares version-like names by their numbers in order, so
+// v0.13.0.0 is newer than v0.9.3.0 (which a plain string sort gets wrong).
+// A pre-release (-rc, -beta, -alpha) sorts before the same version.
+func versionLess(a, b string) bool {
+	na, nb := digitRuns.FindAllString(a, -1), digitRuns.FindAllString(b, -1)
+	pa, pb := isPre(a), isPre(b)
+	if pa {
+		na = na[:max(0, len(na)-1)]
+	}
+	if pb {
+		nb = nb[:max(0, len(nb)-1)]
+	}
+	for i := 0; i < len(na) && i < len(nb); i++ {
+		x, y := strings.TrimLeft(na[i], "0"), strings.TrimLeft(nb[i], "0")
+		if len(x) != len(y) {
+			return len(x) < len(y)
+		}
+		if x != y {
+			return x < y
+		}
+	}
+	if len(na) != len(nb) {
+		return len(na) < len(nb)
+	}
+	return pa && !pb
+}
+
+var preTag = regexp.MustCompile(`(?i)[-.](rc|beta|alpha|pre|dev)\.?\d*$`)
+
+func isPre(s string) bool { return preTag.MatchString(s) }
+
+// highestTag picks the newest-looking version among a repo's tags,
+// skipping pre-releases unless that's all there is.
+func highestTag(tags []Tag) Tag {
+	best := -1
+	for i, t := range tags {
+		if isPre(t.Name) {
+			continue
+		}
+		if best < 0 || versionLess(tags[best].Name, t.Name) {
+			best = i
+		}
+	}
+	if best < 0 {
+		return tags[0]
+	}
+	return tags[best]
 }
 
 func shortSHA(s string) string {

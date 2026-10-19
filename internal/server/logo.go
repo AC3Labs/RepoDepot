@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -23,8 +24,6 @@ import (
 // The result is downloaded once and served from disk.
 
 var logoName = regexp.MustCompile(`(?i)^(logo|icon|app[-_]?icon|favicon|brand|mark)([-_.].*)?\.(png|svg|jpe?g|webp)$`)
-var logoDirs = map[string]bool{"assets": true, ".github": true, "docs": true, "images": true, "img": true, "media": true,
-	"static": true, "public": true, "resources": true, "branding": true, "art": true, "logo": true, "icons": true, ".assets": true}
 
 var logoMu sync.Map // repo -> *sync.Mutex, so one repo's logo is found once
 
@@ -63,6 +62,12 @@ func (s *Server) ensureLogo(ctx context.Context, repo *Repo) string {
 	if checked != "" && time.Since(parseDB(checked)) < 7*24*time.Hour {
 		return logo
 	}
+	if _, err := s.gh.Repo(ctx, full, s.gh.minutes("cache_repo_minutes")); err != nil {
+		var ge *GitHubError
+		if !errors.As(err, &ge) || ge.Status != 404 {
+			return logo // GitHub unreachable or rate-limited: try again next time
+		}
+	}
 	src := s.findLogo(ctx, repo)
 	file := ""
 	if src != "" {
@@ -81,44 +86,15 @@ func (s *Server) ensureLogo(ctx context.Context, repo *Repo) string {
 
 func (s *Server) findLogo(ctx context.Context, repo *Repo) string {
 	full := repo.FullName
-	root, err := s.gh.Contents(ctx, full, "")
-	if err != nil {
-		return ""
+	branch := repo.DefaultBranch
+	if branch == "" {
+		branch = "HEAD"
 	}
-	pick := func(list []ContentEntry) string {
-		best := ""
-		for _, e := range list {
-			if e.Type == "file" && e.Size < 2<<20 && logoName.MatchString(e.Name) {
-				// Prefer "logo" over "icon"/"favicon", and png/svg over jpg.
-				if best == "" || strings.HasPrefix(strings.ToLower(e.Name), "logo") && !strings.HasPrefix(strings.ToLower(filepath.Base(best)), "logo") {
-					best = e.DownloadURL
-				}
-			}
-		}
-		return best
-	}
-	if u := pick(root); u != "" {
-		return u
-	}
-	checked := 0
-	for _, e := range root {
-		if e.Type == "dir" && logoDirs[strings.ToLower(e.Name)] && checked < 4 {
-			checked++
-			list, err := s.gh.Contents(ctx, full, e.Path)
-			if err != nil {
-				continue
-			}
-			if u := pick(list); u != "" {
-				return u
-			}
-			for _, sub := range list { // one more level: assets/images/logo.png
-				if sub.Type == "dir" && logoDirs[strings.ToLower(sub.Name)] {
-					if l2, err := s.gh.Contents(ctx, full, sub.Path); err == nil {
-						if u := pick(l2); u != "" {
-							return u
-						}
-					}
-				}
+	// One request lists every file in the repo.
+	if tree, err := s.gh.Tree(ctx, full, branch); err == nil {
+		if p := bestLogoPath(tree, repo.Name); p != "" {
+			if f, err := s.gh.File(ctx, full, p); err == nil && f.DownloadURL != "" {
+				return f.DownloadURL
 			}
 		}
 	}
@@ -128,6 +104,46 @@ func (s *Server) findLogo(ctx context.Context, repo *Repo) string {
 		}
 	}
 	return ""
+}
+
+var skipLogoDir = regexp.MustCompile(`(?i)(^|/)(node_modules|vendor|third[_-]?party|test|tests|testdata|fixtures|examples?|screenshots?|\.git|dist|build|deps)/`)
+
+// bestLogoPath ranks image files named like a logo: shallow beats deep,
+// "logo" beats "icon", the repo's own name helps, svg/png beat jpg.
+func bestLogoPath(paths []string, repoName string) string {
+	best, bestScore := "", -1<<30
+	repoName = strings.ToLower(repoName)
+	for _, p := range paths {
+		name := strings.ToLower(path.Base(p))
+		if !logoName.MatchString(name) || skipLogoDir.MatchString(p) {
+			continue
+		}
+		score := 100 - 10*strings.Count(p, "/")
+		if strings.HasPrefix(name, "logo") {
+			score += 20
+		}
+		if strings.Contains(strings.ToLower(p), repoName) {
+			score += 8
+		}
+		switch path.Ext(name) {
+		case ".svg":
+			score += 6
+		case ".png":
+			score += 5
+		case ".webp":
+			score += 3
+		}
+		if strings.Contains(name, "favicon") {
+			score -= 15 // tiny
+		}
+		if strings.Contains(name, "dark") || strings.Contains(name, "white") {
+			score -= 3
+		}
+		if score > bestScore {
+			best, bestScore = p, score
+		}
+	}
+	return best
 }
 
 var imgSrc = regexp.MustCompile(`(?i)<img[^>]+src="([^"]+)"`)

@@ -459,9 +459,13 @@ func (s *Server) apiInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch req.Method {
-	case spec.MethodCompose, spec.MethodRelease, spec.MethodSource:
+	case spec.MethodCompose, spec.MethodRelease, spec.MethodSource, MethodTrack:
 	default:
 		jsonError(w, 422, "Pick an install method.")
+		return
+	}
+	if req.Method == MethodTrack && strings.TrimSpace(req.Version) == "" {
+		jsonError(w, 422, "Pick the version that's installed now.")
 		return
 	}
 	switch req.Track {
@@ -480,6 +484,10 @@ func (s *Server) apiInstall(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Options.Private = repo.Private
 	go s.ensureLogo(context.Background(), repo)
+	if req.Method == MethodTrack {
+		s.trackInstalled(w, r, &req, repo)
+		return
+	}
 
 	var results []installResult
 	for _, mid := range req.Machines {
@@ -527,6 +535,89 @@ func (s *Server) apiInstall(w http.ResponseWriter, r *http.Request) {
 		results = append(results, res)
 	}
 	writeJSON(w, 200, map[string]any{"results": results})
+}
+
+// trackInstalled registers software installed some other way: no job,
+// just a record with its version, location and machine.
+func (s *Server) trackInstalled(w http.ResponseWriter, r *http.Request, req *installReq, repo *Repo) {
+	var results []installResult
+	ref := strings.TrimSpace(req.Version)
+	label := ref
+	if req.Track == "commit" {
+		label = shortSHA(ref)
+	}
+	for _, mid := range req.Machines {
+		m, err := s.store.Machine(mid)
+		if err != nil {
+			results = append(results, installResult{Machine: fmt.Sprint(mid), Error: "No such machine."})
+			continue
+		}
+		slug := s.store.slugFor(m.ID, repo.Name)
+		loc := strings.TrimSpace(req.Dirs[fmt.Sprint(mid)])
+		raw, _ := json.Marshal(req.Options)
+		id, err := s.store.exec(`INSERT INTO apps (repo, description, html_url, slug, machine_id, method, track, branch, dir, location, status,
+			installed_ref, installed_label, installed_at, auto_update, notify, options, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'installed', ?, ?, ?, 0, ?, ?, ?, ?)`,
+			repo.FullName, repo.Description, repo.HTMLURL, slug, m.ID, MethodTrack, req.Track, req.Branch, loc, loc,
+			ref, label, nowDB(), req.Notify, string(raw), nowDB(), nowDB())
+		if err != nil {
+			results = append(results, installResult{Machine: m.Name, Error: err.Error()})
+			continue
+		}
+		results = append(results, installResult{Machine: m.Name, AppID: id})
+	}
+	go s.checkUpdates(context.Background())
+	writeJSON(w, 200, map[string]any{"results": results})
+}
+
+// apiMarkUpdated records that a tracked app was updated outside The Repo
+// Depot (to the latest version, or the one given).
+func (s *Server) apiMarkUpdated(w http.ResponseWriter, r *http.Request) {
+	a := s.appFromPath(w, r)
+	if a == nil {
+		return
+	}
+	var body struct {
+		Ref string `json:"ref"`
+	}
+	decodeJSON(r, &body)
+	ref, label := strings.TrimSpace(body.Ref), ""
+	if ref == "" {
+		ref, label = a.LatestRef, a.LatestLabel
+	}
+	if ref == "" {
+		jsonError(w, 422, "No newer version is known yet. Check for updates first.")
+		return
+	}
+	if label == "" {
+		label = ref
+		if a.Track == "commit" {
+			label = shortSHA(ref)
+		}
+	}
+	s.store.db.Exec(`UPDATE apps SET installed_ref = ?, installed_label = ?, installed_at = ?, notified_ref = '', updated_at = ? WHERE id = ?`,
+		ref, label, nowDB(), nowDB(), a.ID)
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+// apiFindLogo looks for an app's logo again now.
+func (s *Server) apiFindLogo(w http.ResponseWriter, r *http.Request) {
+	a := s.appFromPath(w, r)
+	if a == nil {
+		return
+	}
+	repo, err := s.gh.Repo(r.Context(), a.Repo, s.gh.minutes("cache_repo_minutes"))
+	if err != nil {
+		jsonError(w, 502, err.Error())
+		return
+	}
+	s.store.db.Exec(`UPDATE repo_meta SET logo_checked = '' WHERE repo = ?`, a.Repo)
+	file := s.ensureLogo(r.Context(), repo)
+	if file == "" {
+		jsonError(w, 404, "No logo found; the owner's picture is used.")
+		return
+	}
+	writeJSON(w, 200, map[string]string{"logo_url": "/logos/" + file})
 }
 
 // ---- API: installed apps ----
@@ -599,6 +690,12 @@ func (s *Server) apiUpdateMany(w http.ResponseWriter, r *http.Request) {
 		if !(body.All && a.UpdateAvailable()) && !want[a.ID] {
 			continue
 		}
+		if a.Method == MethodTrack {
+			if want[a.ID] {
+				failed = append(failed, a.Name()+" is tracked only; update it the way it was installed.")
+			}
+			continue
+		}
 		if _, err := s.startJob(r.Context(), a, spec.ActionUpdate, "", false); err != nil {
 			failed = append(failed, a.Name()+" on "+a.MachineName+": "+err.Error())
 			continue
@@ -617,6 +714,10 @@ func (s *Server) apiUninstall(w http.ResponseWriter, r *http.Request) {
 		RemoveData bool `json:"remove_data"`
 	}
 	decodeJSON(r, &body)
+	if a.Method == MethodTrack {
+		jsonError(w, 409, "The Repo Depot didn't install this, so it can't uninstall it. Unregister it instead.")
+		return
+	}
 	jobID, err := s.startJob(r.Context(), a, spec.ActionUninstall, "", body.RemoveData)
 	if err != nil {
 		jsonError(w, 409, err.Error())
@@ -649,6 +750,8 @@ func (s *Server) apiAppSettings(w http.ResponseWriter, r *http.Request) {
 		AutoUpdate bool       `json:"auto_update"`
 		Notify     bool       `json:"notify"`
 		Options    AppOptions `json:"options"`
+		Installed  string     `json:"installed"` // tracked apps: the version that's on the machine
+		Location   string     `json:"location"`  // tracked apps: where it is
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		jsonError(w, 400, "Invalid request.")
@@ -664,6 +767,22 @@ func (s *Server) apiAppSettings(w http.ResponseWriter, r *http.Request) {
 		body.Track = "release"
 	}
 	body.Options.Private = a.Options.Private
+	if u := strings.TrimSpace(body.Options.OpenURL); u != "" && !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+		jsonError(w, 422, "The web address must start with http:// or https://.")
+		return
+	}
+	if a.Method == MethodTrack {
+		if loc := strings.TrimSpace(body.Location); loc != "" {
+			s.store.db.Exec(`UPDATE apps SET dir = ?, location = ? WHERE id = ?`, loc, loc, a.ID)
+		}
+		if v := strings.TrimSpace(body.Installed); v != "" && v != a.InstalledRef {
+			label := v
+			if body.Track == "commit" {
+				label = shortSHA(v)
+			}
+			s.store.db.Exec(`UPDATE apps SET installed_ref = ?, installed_label = ?, installed_at = ?, notified_ref = '' WHERE id = ?`, v, label, nowDB(), a.ID)
+		}
+	}
 	raw, _ := json.Marshal(body.Options)
 	trackChanged := body.Track != a.Track || strings.TrimSpace(body.Branch) != a.Branch
 	s.store.db.Exec(`UPDATE apps SET track = ?, branch = ?, auto_update = ?, notify = ?, options = ?, updated_at = ? WHERE id = ?`,

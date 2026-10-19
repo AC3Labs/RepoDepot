@@ -82,7 +82,9 @@
             <div class="progress" x-show="busy(a)" x-cloak><div></div></div>
             <div class="foot">
               <span class="tiny muted truncate grow" x-text="a.check_error ? 'Check failed: '+a.check_error : 'Checked '+a.checked_ago"></span>
-              <button class="btn sm primary" x-show="a.update_available && !busy(a)" @click="updateOne(a)">{{template "i-up"}}Update</button>
+              <a class="btn sm" x-show="a.options.open_url" :href="a.options.open_url" target="_blank" rel="noopener">{{template "i-external"}}Open</a>
+              <button class="btn sm primary" x-show="a.update_available && !busy(a) && a.method!=='track'" @click="updateOne(a)">{{template "i-up"}}Update</button>
+              <button class="btn sm" x-show="a.update_available && a.method==='track'" @click="markUpdated(a)" title="You updated it yourself">{{template "i-check"}}Mark updated</button>
               <a class="btn sm" :href="'/apps/'+a.id">Details</a>
             </div>
           </div>
@@ -101,7 +103,7 @@
                 <td class="hide-sm"><span class="mono tiny muted" x-text="a.location||a.dir"></span></td>
                 <td class="small"><span x-text="a.installed_label||'—'"></span><template x-if="a.update_available"><span> <span style="color:var(--accent)">→</span> <span x-text="a.latest_label"></span></span></template></td>
                 <td x-html="statusPill(a)"></td>
-                <td class="nowrap" style="text-align:right"><button class="btn sm primary" x-show="a.update_available && !busy(a)" @click="updateOne(a)">Update</button> <a class="btn sm" :href="'/apps/'+a.id">Details</a></td>
+                <td class="nowrap" style="text-align:right"><a class="btn sm" x-show="a.options.open_url" :href="a.options.open_url" target="_blank" rel="noopener">Open</a> <button class="btn sm primary" x-show="a.update_available && !busy(a) && a.method!=='track'" @click="updateOne(a)">Update</button><button class="btn sm" x-show="a.update_available && a.method==='track'" @click="markUpdated(a)">Mark updated</button> <a class="btn sm" :href="'/apps/'+a.id">Details</a></td>
               </tr>
             </template>
           </tbody>

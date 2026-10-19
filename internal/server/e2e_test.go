@@ -92,6 +92,11 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 		case r.URL.Path == "/repos/me/tool/contents/":
 			reply([]any{map[string]any{"name": "logo.png", "path": "logo.png", "type": "file", "size": 70, "download_url": base + "/raw/logo.png"},
 				map[string]any{"name": "main.go", "path": "main.go", "type": "file"}})
+		case strings.HasPrefix(r.URL.Path, "/repos/me/tool/git/trees/"):
+			reply(map[string]any{"tree": []any{map[string]any{"path": "main.go", "type": "blob", "size": 10},
+				map[string]any{"path": "assets/logo.png", "type": "blob", "size": 70}}})
+		case r.URL.Path == "/repos/me/tool/contents/assets/logo.png":
+			reply(map[string]any{"name": "logo.png", "path": "assets/logo.png", "type": "file", "size": 70, "download_url": base + "/raw/logo.png"})
 		case r.URL.Path == "/repos/me/tool/readme":
 			w.Write([]byte(`<article class="markdown-body"><h1>Tool</h1><p>Does things.</p><script>bad()</script></article>`))
 		case r.URL.Path == "/raw/logo.png":
@@ -354,5 +359,65 @@ func TestEndToEndInstallUpdateAndUninstall(t *testing.T) {
 	defer gh.mu.Unlock()
 	if gh.hits["/search/repositories"] != 1 {
 		t.Errorf("search hit GitHub %d times", gh.hits["/search/repositories"])
+	}
+}
+
+func TestTrackOnlyAppsAreWatchedButNeverTouched(t *testing.T) {
+	gh := newFakeGitHub(t)
+	gh.releases = []string{"v1.1.0", "v1.0.0"}
+	s, err := New(Config{DataDir: t.TempDir(), Listen: ":0", AgentsDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.settings.Set("github_api", gh.srv.URL)
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+	jar, _ := cookiejar.New(nil)
+	b := &browser{t: t, base: srv.URL, c: &http.Client{Jar: jar}}
+	resp, _ := b.c.PostForm(srv.URL+"/setup", url.Values{"name": {"A"}, "email": {"a@example.com"}, "password": {"pass-word-1"}, "password_confirm": {"pass-word-1"}})
+	resp.Body.Close()
+	b.page("/")
+	// An offline machine is fine: nothing is ever sent to it.
+	var made struct{ Machine Machine }
+	b.call("POST", "/api/machines", map[string]any{"name": "Elsewhere", "host": "192.0.2.1", "port": 8471}, &made)
+
+	var res struct{ Results []installResult }
+	b.call("POST", "/api/install", map[string]any{"repo": "me/tool", "machines": []int64{made.Machine.ID}, "method": "track", "track": "release",
+		"version": "v1.0.0", "dirs": map[string]string{fmt.Sprint(made.Machine.ID): "/srv/tool"}, "options": map[string]string{"open_url": "http://192.0.2.1:9000"}, "notify": true}, &res)
+	if len(res.Results) != 1 || res.Results[0].Error != "" || res.Results[0].JobID != 0 {
+		t.Fatalf("track: %+v", res.Results)
+	}
+	id := res.Results[0].AppID
+	waitFor(t, "update found", func() bool { a, _ := s.store.App(id); return a.UpdateAvailable() })
+	a, _ := s.store.App(id)
+	if a.Location != "/srv/tool" || a.Options.OpenURL != "http://192.0.2.1:9000" || a.Status != "installed" {
+		t.Fatalf("tracked app: %+v", a)
+	}
+	// It can't be updated or uninstalled from here, and Update all skips it.
+	if code := b.call("POST", fmt.Sprintf("/api/apps/%d/update", id), map[string]any{}, nil); code != 409 {
+		t.Fatalf("update of a tracked app: %d", code)
+	}
+	if code := b.call("POST", fmt.Sprintf("/api/apps/%d/uninstall", id), map[string]any{}, nil); code != 409 {
+		t.Fatalf("uninstall of a tracked app: %d", code)
+	}
+	var many struct {
+		Started int
+		Failed  []string
+	}
+	b.call("POST", "/api/apps/update", map[string]any{"all": true}, &many)
+	if many.Started != 0 || len(many.Failed) != 0 {
+		t.Fatalf("update all touched a tracked app: %+v", many)
+	}
+	// Marked updated by hand: no update showing any more.
+	b.call("POST", fmt.Sprintf("/api/apps/%d/mark", id), map[string]any{}, nil)
+	if a, _ := s.store.App(id); a.InstalledRef != "v1.1.0" || a.UpdateAvailable() {
+		t.Fatalf("after mark: %+v", a)
+	}
+	jobs, _ := s.store.Jobs(0, 10)
+	if len(jobs) != 0 {
+		t.Fatalf("a tracked app made jobs: %+v", jobs)
+	}
+	if code := b.call("POST", fmt.Sprintf("/api/apps/%d/unregister", id), nil, nil); code != 200 {
+		t.Fatalf("unregister: %d", code)
 	}
 }
