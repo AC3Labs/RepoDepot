@@ -1,0 +1,65 @@
+{{define "content"}}{{$d := .Data}}
+<div x-data="machinesPage({{json (index $d "Machines")}}, {{index $d "Port"}}, {{json (index $d "Welcome")}})" x-init="start()">
+  <div class="page-head">
+    <div class="grow"><h1>Machines</h1><div class="sub">The computers software gets installed on. Each runs a small agent.</div></div>
+    <button class="btn primary" @click="openAdd()">{{template "i-plus"}}Add machine</button>
+  </div>
+
+  <template x-if="welcome && list.length===0">
+    <div class="notice accent" style="margin-bottom:18px">{{template "i-info"}}<div><b>Welcome!</b> Add the first machine The Repo Depot installs onto. It can be this server itself.</div></div>
+  </template>
+
+  <template x-if="list.length===0"><div class="card empty"><h3>No machines yet</h3><p>Add one, run the one-line command it gives you on that machine, and it's ready.</p><div class="mt"><button class="btn primary lg" @click="openAdd()">{{template "i-plus"}}Add machine</button></div></div></template>
+
+  <div class="apps">
+    <template x-for="m in list" :key="m.id">
+      <div class="card app-card">
+        <div class="row" style="gap:13px">
+          <div class="os-ico" style="width:46px;height:46px;border-radius:12px" x-html="osIcon(m.os)"></div>
+          <div class="grow"><div class="name" x-text="m.name"></div><div class="tiny muted mono" x-text="m.host+':'+m.port"></div></div>
+          <span x-show="state[m.id]==='checking'" class="pill muted busy">Checking…</span>
+          <span x-show="state[m.id]!=='checking'" class="pill" :class="m.status==='online'?'ok':'bad'" x-text="m.status==='online'?'Online':'Offline'"></span>
+        </div>
+        <div class="row wrap" style="gap:6px">
+          <span class="chip" x-show="m.os" x-text="osName(m.os)+' · '+m.arch"></span>
+          <span class="chip" x-show="m.docker">{{template "i-docker"}}Docker</span>
+          <span class="chip" x-show="m.agent_version" x-text="'Agent '+m.agent_version"></span>
+          <span class="chip" x-show="m.os && !m.admin" style="color:var(--warn)">Not admin</span>
+        </div>
+        <div class="tiny muted" x-text="(apps[m.id]!==undefined ? apps[m.id]+' app'+(apps[m.id]===1?'':'s')+' · ' : '') + (m.last_seen ? 'last seen '+(seen[m.id]||'') : 'never seen')"></div>
+        <div class="foot">
+          <span class="spacer"></span>
+          <button class="btn sm" @click="check(m)">{{template "i-refresh"}}Check</button>
+          <button class="btn sm" @click="openEdit(m)">Edit</button>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <div class="overlay" x-show="dlg" x-cloak x-transition.opacity @keydown.escape.window="dlg=false">
+    <div class="modal" @click.outside="dlg=false">
+      <div class="modal-head"><h2 class="grow" x-text="form.id ? 'Edit '+form.name : (created ? 'Install the agent' : 'Add a machine')"></h2><button class="btn ghost icon" @click="dlg=false" aria-label="Close">{{template "i-x"}}</button></div>
+      <div class="modal-body" x-show="!created">
+        <div class="field"><label>Name</label><input class="input" x-model="form.name" placeholder="Docker Server" x-ref="name"></div>
+        <div class="form-grid">
+          <div class="field"><label>Address</label><input class="input" x-model="form.host" placeholder="192.168.0.70"><span class="help">IP address or hostname.</span></div>
+          <div class="field"><label>Agent port</label><input class="input" type="number" x-model.number="form.port"></div>
+        </div>
+        <label class="switch"><input type="checkbox" x-model="form.use_tls"><span class="track"></span><span>The agent uses HTTPS</span></label>
+        <div class="field" x-show="form.id"><label>Token</label><input class="input mono" x-model="form.token" placeholder="unchanged"><span class="help">Leave empty to keep it. <a href="#" @click.prevent="newToken()">Make a new one</a> (then re-run the install command on the machine).</span></div>
+        <div class="notice bad" x-show="form.id && form.apps===0" style="align-items:center">{{template "i-trash"}}<div class="grow small">No apps on this machine.</div><button class="btn sm danger" @click="remove()">Delete machine</button></div>
+      </div>
+      <div class="modal-body" x-show="created">
+        <p class="dim">Run one of these on <b x-text="form.name"></b>. It downloads the agent from this server, saves the token and starts it as a service. Running it again later updates the agent.</p>
+        <div class="field"><label>Linux</label><div class="codebox"><code x-text="cmds.linux"></code><button class="btn sm" @click="copy(cmds.linux)">{{template "i-copy"}}Copy</button></div></div>
+        <div class="field"><label>Windows <span class="muted small">(Terminal as Administrator)</span></label><div class="codebox"><code x-text="cmds.windows"></code><button class="btn sm" @click="copy(cmds.windows)">{{template "i-copy"}}Copy</button></div></div>
+        <div class="row" style="gap:10px"><span class="spinner" x-show="waiting"></span><span class="small" :style="online ? 'color:var(--ok)' : ''" x-text="online ? 'Connected! The agent is running.' : 'Waiting for the agent to answer…'"></span></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" @click="dlg=false" x-text="created ? 'Close' : 'Cancel'"></button>
+        <button class="btn primary" x-show="!created" @click="save()" :disabled="saving"><span class="spinner" x-show="saving"></span><span x-text="form.id ? 'Save' : 'Add machine'"></span></button>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}

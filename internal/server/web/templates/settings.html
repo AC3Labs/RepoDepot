@@ -1,0 +1,52 @@
+{{define "content"}}{{$d := .Data}}
+<div x-data="settingsPage({{json (index $d "Tab")}})">
+  <div class="page-head"><div class="grow"><h1>Settings</h1><div class="sub">Everything The Repo Depot does can be changed here.</div></div></div>
+  <div class="tabs">
+    {{range index $d "Sections"}}<button :class="tab==='{{.Key}}'&&'on'" @click="go('{{.Key}}')">{{.Label}}</button>{{end}}
+    <button :class="tab==='account'&&'on'" @click="go('account')">Account</button>
+  </div>
+
+  {{$rl := index $d "RateLeft"}}
+  {{range index $d "Sections"}}
+  <form class="card pad" x-show="tab==='{{.Key}}'" {{if ne .Key "general"}}x-cloak{{end}} @submit.prevent="save($el)">
+    {{if eq .Key "github"}}
+      <div class="notice info" style="margin-bottom:6px">{{template "i-info"}}<div>{{if ge $rl 0}}GitHub requests left this hour: <b>{{$rl}}</b> of {{index $d "RateLimit"}} (resets {{index $d "RateReset"}}).{{else}}No GitHub requests made yet since start-up.{{end}} Unchanged answers are re-checked for free.</div></div>
+    {{end}}
+    {{if eq .Key "notifications"}}
+      <div class="notice accent" style="margin-bottom:6px">{{template "i-bell"}}<div>Install the <a href="https://ntfy.sh" target="_blank" rel="noopener">ntfy app</a> on your phone and subscribe to your topic. Notifications open this app at <b>{{index $d "Base"}}</b>; set the public address (General) if that isn't how your phone reaches it.</div></div>
+    {{end}}
+    {{range .Items}}
+    <div class="setting-row">
+      <div><div class="label">{{.Label}}</div>{{if .Help}}<div class="help mt-s">{{.Help}}</div>{{end}}</div>
+      <div>
+        {{if eq .Type "bool"}}
+          <label class="switch"><input type="hidden" name="{{.Key}}" value="false"><input type="checkbox" name="{{.Key}}" value="true" {{if eq .Value "true"}}checked{{end}}><span class="track"></span><span class="small dim sw-on">On</span><span class="small dim sw-off">Off</span></label>
+        {{else if eq .Type "select"}}
+          <select class="select" name="{{.Key}}" style="max-width:420px">{{$v := .Value}}{{range .Options}}<option value="{{index . 0}}" {{if eq (index . 0) $v}}selected{{end}}>{{index . 1}}</option>{{end}}</select>
+        {{else if eq .Type "secret"}}
+          <div class="row" style="max-width:520px"><input class="input mono" type="password" name="{{.Key}}" autocomplete="off" placeholder="{{if .Set}}Saved, hidden. Type to replace.{{else}}Not set{{end}}">{{if .Set}}<button type="button" class="btn sm" @click="clearSecret($el, '{{.Key}}')">Clear</button>{{end}}</div>
+        {{else if eq .Type "int"}}
+          <input class="input" type="number" name="{{.Key}}" value="{{.Value}}" {{if .Max}}min="{{.Min}}" max="{{.Max}}"{{end}} style="max-width:160px">
+        {{else}}
+          <input class="input" type="{{if eq .Type "url"}}url{{else}}text{{end}}" name="{{.Key}}" value="{{.Value}}" style="max-width:520px">
+        {{end}}
+      </div>
+    </div>
+    {{end}}
+    <div class="row mt">
+      <span class="spacer"></span>
+      {{if eq .Key "notifications"}}<button type="button" class="btn" @click="testNtfy()">{{template "i-bell"}}Send a test</button>{{end}}
+      <button class="btn primary" :disabled="saving"><span class="spinner" x-show="saving" x-cloak></span>Save</button>
+    </div>
+  </form>
+  {{end}}
+
+  <form class="card pad" x-show="tab==='account'" x-cloak @submit.prevent="saveAccount($el)">
+    <div class="setting-row"><div class="label">Name</div><input class="input" name="name" value="{{.User.Name}}" style="max-width:420px" required></div>
+    <div class="setting-row"><div class="label">Email</div><input class="input" name="email" type="email" value="{{.User.Email}}" style="max-width:420px" required></div>
+    <div class="setting-row"><div><div class="label">New password</div><div class="help mt-s">Leave empty to keep your password. Changing it signs you out everywhere else.</div></div><input class="input" name="new" type="password" autocomplete="new-password" style="max-width:420px"></div>
+    <div class="setting-row"><div><div class="label">Current password</div><div class="help mt-s">Needed to save changes here.</div></div><input class="input" name="current" type="password" autocomplete="current-password" required style="max-width:420px"></div>
+    <div class="row mt"><span class="spacer"></span><button class="btn primary">Save</button></div>
+  </form>
+</div>
+{{end}}

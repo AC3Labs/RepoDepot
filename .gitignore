@@ -1,0 +1,8 @@
+# Private project brief (deployment details)
+RepoDepot.md
+# Local toolchain and build output
+.tools/
+dist/
+# A machine's real agent config (holds its token)
+agent-config.json
+*.local.json

@@ -1,0 +1,16 @@
+# The Repo Depot server. Agents are installed on each machine separately
+# (Machines -> Add machine gives you the one-line command).
+services:
+  repodepot:
+    image: repodepot:latest
+    container_name: repodepot
+    restart: unless-stopped
+    ports:
+      - "8470:8470"
+    volumes:
+      - repodepot_data:/data
+    environment:
+      TZ: UTC
+
+volumes:
+  repodepot_data:

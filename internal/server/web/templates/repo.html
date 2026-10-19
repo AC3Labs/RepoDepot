@@ -1,0 +1,221 @@
+{{define "content"}}{{$d := .Data}}
+<div x-data="repoPage({{json (index $d "Repo")}}, {{json (index $d "Machines")}}, {{json (index $d "Defaults")}})" x-init="start()">
+  <template x-if="error">
+    <div class="card empty"><h3>Couldn't load this repo</h3><p x-text="error"></p><div class="mt"><a class="btn" href="/discover">Back to Discover</a></div></div>
+  </template>
+
+  <div x-show="!error">
+    <div class="repo-hero">
+      <template x-if="!info"><div class="skel" style="width:84px;height:84px;border-radius:18px"></div></template>
+      <template x-if="info"><img class="logo l" :src="logo" alt="" width="84" height="84" @error="$el.src=info.inspect.repo.owner.avatar_url"></template>
+      <div class="grow">
+        <h1><span class="owner" x-text="owner+' / '"></span><span x-text="name"></span></h1>
+        <template x-if="!info"><div class="col mt-s"><div class="skel" style="height:14px;width:60%"></div><div class="skel" style="height:14px;width:35%"></div></div></template>
+        <template x-if="info">
+          <div>
+            <p class="dim mt-s" style="font-size:1.02rem" x-text="repo.description || 'No description'"></p>
+            <div class="row wrap mt-s" style="gap:6px">
+              <span class="chip" x-show="repo.archived">Archived</span>
+              <template x-for="t in (repo.topics||[]).slice(0,8)" :key="t"><a class="chip" :href="'/discover?q=topic:'+t" x-text="t"></a></template>
+            </div>
+            <div class="row wrap mt" style="gap:10px">
+              <button class="btn primary lg" @click="openInstall()">{{template "i-download"}}Install</button>
+              <a class="btn lg" :href="repo.html_url" target="_blank" rel="noopener">{{template "i-external"}}GitHub</a>
+              <a class="btn ghost lg" x-show="repo.homepage" :href="repo.homepage" target="_blank" rel="noopener">{{template "i-link"}}Website</a>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <template x-if="info && info.installed && info.installed.length">
+      <div class="notice accent" style="margin-bottom:18px">{{template "i-check"}}
+        <div class="grow">Installed on
+          <template x-for="(a,i) in info.installed" :key="a.id"><span><a :href="'/apps/'+a.id" x-text="a.machine_name"></a><span x-text="' ('+(a.installed_label||a.status)+')'+(i<info.installed.length-1?', ':'')"></span></span></template>
+        </div>
+      </div>
+    </template>
+
+    <div class="repo-layout">
+      <div class="card">
+        <div class="tabs" style="padding:0 12px;margin-bottom:0">
+          <button :class="tab==='readme'&&'on'" @click="tab='readme'">README</button>
+          <button :class="tab==='releases'&&'on'" @click="tab='releases'">Releases <span class="chip" x-show="info && info.inspect.releases" x-text="info && info.inspect.releases ? info.inspect.releases.length : ''"></span></button>
+        </div>
+        <div class="card-body">
+          <div x-show="tab==='readme'">
+            <template x-if="readme===null"><div class="col"><div class="skel" style="height:22px;width:50%"></div><div class="skel" style="height:13px"></div><div class="skel" style="height:13px;width:92%"></div><div class="skel" style="height:13px;width:80%"></div><div class="skel" style="height:180px;margin-top:10px"></div></div></template>
+            <template x-if="readme===''"><p class="muted">This repo has no README.</p></template>
+            <div class="markdown" x-show="readme" x-html="readme"></div>
+          </div>
+          <div x-show="tab==='releases'">
+            <template x-if="info && (!info.inspect.releases || info.inspect.releases.length===0)"><p class="muted">No releases. You can still install the source, and track every commit.</p></template>
+            <template x-for="r in (info ? info.inspect.releases || [] : [])" :key="r.tag_name">
+              <div class="release">
+                <div class="row wrap"><b x-text="r.name || r.tag_name"></b><span class="chip" x-text="r.tag_name"></span><span class="pill warn plain" x-show="r.prerelease">Pre-release</span><span class="spacer"></span><span class="tiny muted" x-text="fmtDate(r.published_at)"></span><a class="btn ghost sm" :href="r.html_url" target="_blank" rel="noopener">{{template "i-external"}}</a></div>
+                <div class="mt-s"><template x-for="a in (r.assets||[]).slice(0,12)" :key="a.name"><div class="asset">{{template "i-download"}}<span class="mono grow truncate" x-text="a.name"></span><span class="tiny muted nowrap" x-text="size(a.size)"></span></div></template></div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <div class="col" style="gap:16px">
+        <div class="card pad">
+          <div class="section-title">At a glance</div>
+          <template x-if="!info"><div class="col"><div class="skel" style="height:40px"></div><div class="skel" style="height:40px"></div></div></template>
+          <template x-if="info">
+            <div class="facts">
+              <div class="fact"><div class="l">Stars</div><div class="v" x-text="info.stars"></div></div>
+              <div class="fact"><div class="l">Forks</div><div class="v" x-text="info.forks"></div></div>
+              <div class="fact"><div class="l">Latest release</div><div class="v truncate" x-text="info.inspect.latest ? info.inspect.latest.tag_name : 'None'"></div></div>
+              <div class="fact"><div class="l">Last push</div><div class="v" x-text="info.pushed"></div></div>
+              <div class="fact"><div class="l">Language</div><div class="v" x-text="repo.language || '—'"></div></div>
+              <div class="fact"><div class="l">License</div><div class="v" x-text="info.license || '—'"></div></div>
+            </div>
+          </template>
+        </div>
+        <div class="card pad">
+          <div class="section-title">Ways to install</div>
+          <template x-if="!info"><div class="skel" style="height:110px"></div></template>
+          <div class="col" x-show="info">
+            <template x-for="m in (info ? info.inspect.methods : [])" :key="m.method">
+              <div class="method" style="cursor:default">
+                <div class="ico" x-html="methodIcon(m.method)"></div>
+                <div class="grow"><div class="row" style="gap:6px"><b x-text="m.label"></b><span class="chip accent" x-show="m.method===info.inspect.recommended">Best fit</span></div><div class="small muted" x-text="m.detail"></div></div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Install dialog -->
+  <div class="overlay" x-show="dlg" x-cloak x-transition.opacity @keydown.escape.window="dlg=false">
+    <div class="modal wide" @click.outside="dlg=false" x-show="dlg" x-transition>
+      <div class="modal-head">
+        <img class="logo s" :src="logo" alt="" width="36" height="36">
+        <div class="grow"><h2>Install <span x-text="name"></span></h2><div class="tiny muted" x-text="owner+'/'+name"></div></div>
+        <button class="btn ghost icon" @click="dlg=false" aria-label="Close">{{template "i-x"}}</button>
+      </div>
+      <div class="modal-body" x-show="info">
+        <template x-if="machines.length===0"><div class="notice warn">{{template "i-alert"}}<div>Add a machine first: <a href="/machines">Machines</a>. Each machine runs a small agent that does the installing.</div></div></template>
+
+        <div class="col">
+          <div class="step"><span class="n">1</span>Where</div>
+          <div class="pick">
+            <template x-for="m in fits" :key="m.id">
+              <label :class="[form.machines.includes(m.id)&&'on', !usable(m)&&'off']" :title="whyNot(m)">
+                <input type="checkbox" class="check" :value="m.id" x-model.number="form.machines" :disabled="!usable(m)">
+                <div class="os-ico" x-html="osIcon(m.os)"></div>
+                <div class="grow" style="min-width:0">
+                  <div class="row" style="gap:6px"><b class="truncate" x-text="m.name"></b><span class="pill" :class="m.status==='online'?'ok':'bad'" x-text="m.status==='online'?'Online':'Offline'"></span></div>
+                  <div class="tiny muted truncate" x-text="(m.os? osName(m.os)+' · '+m.arch : 'not checked yet') + (m.docker?' · Docker':'')"></div>
+                  <div class="tiny" style="color:var(--bad)" x-show="whyNot(m)" x-text="whyNot(m)"></div>
+                </div>
+              </label>
+            </template>
+          </div>
+        </div>
+
+        <div class="col">
+          <div class="step"><span class="n">2</span>How</div>
+          <div class="col" style="gap:8px">
+            <template x-for="m in (info ? info.inspect.methods : [])" :key="m.method">
+              <div class="method" :class="form.method===m.method && 'on'" @click="form.method=m.method; methodChanged()">
+                <div class="ico" x-html="methodIcon(m.method)"></div>
+                <div class="grow"><div class="row" style="gap:6px"><b x-text="m.label"></b><span class="chip accent" x-show="m.method===info.inspect.recommended">Best fit</span></div><div class="small muted" x-text="m.detail"></div></div>
+                <input type="radio" class="check" name="method" :checked="form.method===m.method" aria-label="Choose">
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <div class="col">
+          <div class="step"><span class="n">3</span>Options</div>
+
+          <template x-if="form.method==='release'">
+            <div class="col">
+              <template x-for="m in fits.filter(f=>form.machines.includes(f.id))" :key="m.id">
+                <div class="field"><label x-text="'File for '+m.name"></label>
+                  <select class="select" x-model="form.assets[m.id]">
+                    <template x-for="a in (m.assets||[])" :key="a"><option :value="a" x-text="a"></option></template>
+                  </select>
+                  <span class="help">Picked to suit <span x-text="osName(m.os)+' '+m.arch"></span>. Updates pick the same kind of file from each new release.</span>
+                </div>
+              </template>
+              <label class="switch"><input type="checkbox" x-model="form.options.link_binary"><span class="track"></span><span>Put the program on the PATH <span class="muted small">(Linux: /usr/local/bin)</span></span></label>
+            </div>
+          </template>
+
+          <template x-if="form.method==='compose'">
+            <div class="col">
+              <template x-if="info.inspect.compose_files && info.inspect.compose_files.length">
+                <div class="field"><label>Compose file</label>
+                  <div class="row"><select class="select" x-model="form.options.compose_file"><template x-for="f in info.inspect.compose_files" :key="f"><option :value="f" x-text="f"></option></template></select>
+                  <button class="btn sm" type="button" @click="viewCompose()">View</button></div>
+                  <pre class="log" x-show="composeText" x-text="composeText" style="max-height:260px"></pre>
+                </div>
+              </template>
+              <template x-if="!info.inspect.compose_files || !info.inspect.compose_files.length">
+                <div class="field"><label>Compose file</label><textarea class="textarea" style="min-height:170px" x-model="form.options.generated_compose"></textarea><span class="help">This repo has only a Dockerfile, so The Repo Depot writes this compose file. Add the ports and volumes the app needs.</span></div>
+              </template>
+              <div class="field"><label>Changes to the compose file <span class="muted small">(optional)</span></label><textarea class="textarea" x-model="form.options.compose_override" placeholder="services:&#10;  app:&#10;    ports:&#10;      - &quot;8085:80&quot;"></textarea><span class="help">Merged on top of the project's file (a compose override), so updates keep your changes. Use it to change ports, volumes or environment.</span></div>
+              <div class="field"><label>.env <span class="muted small">(optional)</span></label><textarea class="textarea" style="min-height:80px" x-model="form.options.env" placeholder="TZ=America/New_York"></textarea></div>
+            </div>
+          </template>
+
+          <template x-if="form.method==='source'">
+            <div class="field"><label>Build or install command <span class="muted small">(optional)</span></label><textarea class="textarea" style="min-height:70px" x-model="form.options.post_install" placeholder="make && make install"></textarea><span class="help">Runs in the source folder after every install and update.</span></div>
+          </template>
+
+          <template x-if="form.method!=='compose'">
+            <div class="col">
+              <label class="switch"><input type="checkbox" x-model="form.options.service"><span class="track"></span><span>Run it as a service <span class="muted small">(starts at boot, restarts if it stops)</span></span></label>
+              <div class="form-grid" x-show="form.options.service">
+                <div class="field"><label>Program</label><input class="input" x-model="form.options.service_exec" placeholder="auto"><span class="help">"auto" finds the program named like the repo.</span></div>
+                <div class="field"><label>Arguments</label><input class="input" x-model="form.options.service_args" placeholder="serve --port 8080"></div>
+              </div>
+            </div>
+          </template>
+
+          <details class="card pad" style="background:var(--bg)">
+            <summary class="label" style="cursor:pointer">Version tracking, folders and notifications</summary>
+            <div class="col mt">
+              <div class="form-grid">
+                <div class="field"><label>Updates come from</label>
+                  <select class="select" x-model="form.track" :disabled="form.method==='release'">
+                    <option value="release" :disabled="!info.inspect.latest">Releases</option>
+                    <option value="tag">Tags</option>
+                    <option value="commit">Commits</option>
+                  </select>
+                  <span class="help" x-text="form.track==='commit' ? 'Every change pushed to the branch counts as an update.' : form.track==='tag' ? 'Every new tag counts as an update.' : 'Only official releases count.'"></span>
+                </div>
+                <div class="field" x-show="form.track==='commit'"><label>Branch</label><input class="input" x-model="form.branch" :placeholder="repo.default_branch"></div>
+                <div class="field" x-show="form.track!=='commit' && info.inspect.releases && info.inspect.releases.length"><label>Install version</label>
+                  <select class="select" x-model="form.version"><option value="">Latest</option><template x-for="r in info.inspect.releases" :key="r.tag_name"><option :value="r.tag_name" x-text="r.tag_name"></option></template></select>
+                </div>
+              </div>
+              <template x-for="m in fits.filter(f=>form.machines.includes(f.id))" :key="'d'+m.id">
+                <div class="field"><label x-text="'Folder on '+m.name"></label><input class="input mono" x-model="form.dirs[m.id]"></div>
+              </template>
+              <div class="field" x-show="form.method!=='source'"><label>Command after install <span class="muted small">(optional)</span></label><input class="input mono" x-model="form.options.post_install" placeholder=""></div>
+              <label class="switch"><input type="checkbox" x-model="form.auto_update"><span class="track"></span><span>Install updates automatically</span></label>
+              <label class="switch"><input type="checkbox" x-model="form.notify"><span class="track"></span><span>Notify me about updates</span></label>
+            </div>
+          </details>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <span class="small muted grow" x-text="summary()"></span>
+        <button class="btn" @click="dlg=false">Cancel</button>
+        <button class="btn primary" @click="install()" :disabled="busy || form.machines.length===0">
+          <span class="spinner" x-show="busy" x-cloak></span>{{template "i-download"}}
+          <span x-text="form.machines.length>1 ? 'Install on '+form.machines.length+' machines' : 'Install'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}

@@ -1,0 +1,63 @@
+{{define "content"}}{{$d := .Data}}
+<div x-data="discover({{json (index $d "Query")}})" x-init="start()" @keydown.window="keys($event)">
+  <div class="page-head">
+    <div class="grow">
+      <h1>Discover</h1>
+      <div class="sub">Search all of GitHub, or paste a link to a repo.</div>
+    </div>
+  </div>
+
+  <div class="searchbox big">
+    {{template "i-search"}}
+    <input x-ref="input" x-model="q" @input.debounce.250ms="search(1)" placeholder="What are you looking for? Try “photo backup” or paste github.com/owner/repo" autocomplete="off" spellcheck="false" aria-label="Search GitHub">
+    <span class="spinner" x-show="loading" x-cloak></span>
+    <button class="btn ghost sm icon" x-show="q" x-cloak @click="q='';search(1);$refs.input.focus()" aria-label="Clear">{{template "i-x"}}</button>
+  </div>
+
+  <div class="filters">
+    <div class="seg">
+      <button :class="sort===''&&'on'" @click="setSort('')">Best match</button>
+      <button :class="sort==='stars'&&'on'" @click="setSort('stars')">{{template "i-star"}}Most stars</button>
+      <button :class="sort==='updated'&&'on'" @click="setSort('updated')">{{template "i-clock"}}Recently updated</button>
+    </div>
+    <div class="suggest">
+      <template x-for="s in suggestions" :key="s[1]"><button @click="q=s[1];search(1)" x-text="s[0]"></button></template>
+    </div>
+    <div class="spacer"></div>
+    <span class="small muted" x-show="total>0 && !q" x-cloak>Popular self-hosted projects</span>
+    <span class="small muted" x-show="total>0 && q" x-cloak x-text="total.toLocaleString()+' repos'"></span>
+  </div>
+
+  <template x-if="error"><div class="notice bad">{{template "i-alert"}}<div x-text="error"></div></div></template>
+
+  <div class="results" x-show="!error">
+    <template x-if="loading && items.length===0">
+      <div class="col"><template x-for="i in 6"><div class="card result"><div class="skel" style="width:48px;height:48px;border-radius:12px"></div><div class="grow col" style="gap:8px"><div class="skel" style="height:14px;width:40%"></div><div class="skel" style="height:12px;width:85%"></div><div class="skel" style="height:12px;width:30%"></div></div></div></template></div>
+    </template>
+    <template x-for="(r, i) in items" :key="r.full_name">
+      <a class="card result" :class="i===cursor && 'kb'" :href="'/repo/'+r.full_name" @mouseenter="prefetch(r)">
+        <img class="avatar-img" :src="r.avatar" alt="" width="48" height="48" loading="lazy">
+        <div class="grow">
+          <div class="row" style="gap:8px">
+            <div class="title truncate"><span class="owner" x-text="r.owner+' / '"></span><span x-text="r.name"></span></div>
+            <span class="chip accent" x-show="r.installed" x-text="'Installed'+(r.installed>1?' ×'+r.installed:'')"></span>
+          </div>
+          <div class="desc" x-text="r.description || 'No description'"></div>
+          <div class="meta">
+            <span>{{template "i-star"}}<span x-text="r.stars_label"></span></span>
+            <span x-show="r.language"><i class="lang-dot" :style="'background:'+langColor(r.language)"></i><span x-text="r.language"></span></span>
+            <span>{{template "i-clock"}}<span x-text="'Updated '+r.updated"></span></span>
+            <template x-for="t in r.topics" :key="t"><span class="chip" x-text="t"></span></template>
+          </div>
+        </div>
+      </a>
+    </template>
+    <template x-if="!loading && items.length===0 && !error">
+      <div class="card empty"><h3>No repos found</h3><p>Try fewer or different words.</p></div>
+    </template>
+    <div class="row" style="justify-content:center" x-show="items.length < total && items.length>0" x-cloak>
+      <button class="btn" @click="search(page+1)" :disabled="loading"><span class="spinner" x-show="loading"></span>Load more</button>
+    </div>
+  </div>
+</div>
+{{end}}

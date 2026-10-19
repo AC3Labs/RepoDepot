@@ -1,0 +1,104 @@
+{{define "content"}}{{$d := .Data}}
+{{if index $d "Missing"}}
+<div class="card empty"><h3>This app isn't registered</h3><p>It may have been uninstalled or unregistered.</p><div class="mt"><a class="btn" href="/">Back to My Depot</a></div></div>
+{{else}}
+<div x-data="appPage({{json (index $d "App")}}, {{json (index $d "Jobs")}})" x-init="start()">
+  <div class="repo-hero">
+    <img class="logo l" :src="a.logo_url" alt="" width="84" height="84" @error="$el.src='/static/icon.webp'">
+    <div class="grow">
+      <div class="row wrap" style="gap:10px"><h1 x-text="a.name"></h1><span x-html="statusPill(a)"></span></div>
+      <div class="dim mt-s"><a :href="'/repo/'+a.repo" x-text="a.repo"></a> <span class="muted">on</span> <b x-text="a.machine_name"></b></div>
+      <p class="muted mt-s" x-text="a.description"></p>
+      <div class="row wrap mt">
+        <button class="btn primary" x-show="a.update_available" :disabled="busy(a)" @click="update()">{{template "i-up"}}Update to <span x-text="a.latest_label"></span></button>
+        <button class="btn" :disabled="busy(a)" @click="reinstall()">{{template "i-refresh"}}Reinstall</button>
+        <a class="btn" :href="a.html_url" target="_blank" rel="noopener">{{template "i-external"}}GitHub</a>
+        <a class="btn ghost" x-show="a.latest_url" :href="a.latest_url" target="_blank" rel="noopener">What's new</a>
+      </div>
+    </div>
+  </div>
+  <div class="progress" x-show="busy(a)" x-cloak style="margin-bottom:18px"><div></div></div>
+
+  <div class="stats">
+    <div class="card stat"><div class="ico">{{template "i-tag"}}</div><div class="grow" style="min-width:0"><div class="l">Installed</div><div class="truncate" style="font-weight:650" x-text="a.installed_label||'—'"></div><div class="tiny muted" x-text="a.installed_at ? a.installed_ago : ''"></div></div></div>
+    <div class="card stat"><div class="ico warn">{{template "i-up"}}</div><div class="grow" style="min-width:0"><div class="l">Latest</div><div class="truncate" style="font-weight:650" x-text="a.latest_label||'—'"></div><div class="tiny muted" x-text="a.check_error ? 'Check failed: '+a.check_error : 'Checked '+a.checked_ago"></div></div></div>
+    <div class="card stat"><div class="ico info">{{template "i-folder"}}</div><div class="grow" style="min-width:0"><div class="l">Location</div><div class="mono small truncate" :title="a.location||a.dir" x-text="a.location||a.dir"></div><div class="tiny muted" x-text="methodLabel(a.method)"></div></div></div>
+  </div>
+
+  <div class="tabs">
+    <button :class="tab==='activity'&&'on'" @click="tab='activity'">Activity</button>
+    <button :class="tab==='settings'&&'on'" @click="tab='settings'">Settings</button>
+    <button :class="tab==='remove'&&'on'" @click="tab='remove'">Remove</button>
+  </div>
+
+  <div x-show="tab==='activity'" class="card">
+    <template x-if="jobs.length===0"><div class="empty">No jobs yet.</div></template>
+    <template x-for="j in jobs" :key="j.id">
+      <div class="job">
+        <div class="job-row" @click="toggle(j)">
+          <span x-html="jobPill(j)"></span>
+          <b x-text="title(j.action)"></b><span class="dim truncate" x-text="j.ref"></span>
+          <span class="spacer"></span><span class="tiny muted nowrap" x-text="fmtDate(j.created_at)"></span>
+        </div>
+        <div x-show="open[j.id]" style="padding:0 18px 16px" x-cloak>
+          <div class="notice bad" x-show="j.error" style="margin-bottom:10px">{{template "i-alert"}}<div x-text="j.error"></div></div>
+          <pre class="log" x-html="colorLog(j.log)"></pre>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <div x-show="tab==='settings'" class="card pad" x-cloak>
+    <div class="form-grid">
+      <div class="field"><label>Updates come from</label>
+        <select class="select" x-model="s.track" :disabled="a.method==='release'"><option value="release">Releases</option><option value="tag">Tags</option><option value="commit">Commits</option></select>
+      </div>
+      <div class="field" x-show="s.track==='commit'"><label>Branch</label><input class="input" x-model="s.branch" placeholder="default branch"></div>
+    </div>
+    <div class="col mt">
+      <label class="switch"><input type="checkbox" x-model="s.auto_update"><span class="track"></span><span>Install updates automatically</span></label>
+      <label class="switch"><input type="checkbox" x-model="s.notify"><span class="track"></span><span>Notify me about updates</span></label>
+    </div>
+    <div class="col mt-l">
+      <template x-if="a.method==='release'">
+        <div class="field"><label>Release file</label><input class="input mono" x-model="s.options.asset_pattern"><span class="help">Which file to install from each release. * stands for the version number.</span>
+          <label class="switch mt-s"><input type="checkbox" x-model="s.options.link_binary"><span class="track"></span><span>Put the program on the PATH</span></label></div>
+      </template>
+      <template x-if="a.method==='compose'">
+        <div class="col">
+          <div class="field" x-show="s.options.generated_compose"><label>Compose file</label><textarea class="textarea" style="min-height:160px" x-model="s.options.generated_compose"></textarea></div>
+          <div class="field"><label>Changes to the compose file</label><textarea class="textarea" x-model="s.options.compose_override"></textarea></div>
+          <div class="field"><label>.env</label><textarea class="textarea" style="min-height:80px" x-model="s.options.env"></textarea></div>
+        </div>
+      </template>
+      <div class="field"><label x-text="a.method==='source' ? 'Build or install command' : 'Command after install'"></label><textarea class="textarea" style="min-height:60px" x-model="s.options.post_install"></textarea></div>
+      <template x-if="a.method!=='compose'">
+        <div class="col">
+          <label class="switch"><input type="checkbox" x-model="s.options.service"><span class="track"></span><span>Run it as a service</span></label>
+          <div class="form-grid" x-show="s.options.service">
+            <div class="field"><label>Program</label><input class="input" x-model="s.options.service_exec" placeholder="auto"></div>
+            <div class="field"><label>Arguments</label><input class="input" x-model="s.options.service_args"></div>
+          </div>
+        </div>
+      </template>
+    </div>
+    <div class="row mt-l"><span class="help grow">File and service changes take effect on the next update or reinstall.</span><button class="btn" @click="saveSettings(true)" :disabled="saving">Save and reinstall</button><button class="btn primary" @click="saveSettings(false)" :disabled="saving">Save</button></div>
+  </div>
+
+  <div x-show="tab==='remove'" class="col" x-cloak>
+    <div class="card pad">
+      <h3>Uninstall</h3>
+      <p class="dim mt-s">Stops and removes <b x-text="a.name"></b> from <b x-text="a.machine_name"></b>, then stops tracking it.</p>
+      <label class="switch mt"><input type="checkbox" x-model="removeData"><span class="track"></span><span>Also delete its folder and data <span class="mono small muted" x-text="'('+a.dir+')'"></span></span></label>
+      <div class="notice warn mt" x-show="removeData">{{template "i-alert"}}<div>Everything in that folder is deleted, including settings and data the app saved there. For Docker apps, their volumes are deleted too. This can't be undone.</div></div>
+      <div class="mt"><button class="btn danger" :class="removeData&&'solid'" @click="uninstall()" :disabled="busy(a)">{{template "i-trash"}}Uninstall</button></div>
+    </div>
+    <div class="card pad">
+      <h3>Unregister</h3>
+      <p class="dim mt-s">Stops tracking it here but leaves it installed and running on the machine.</p>
+      <div class="mt"><button class="btn" @click="unregister()" :disabled="busy(a)">{{template "i-unlink"}}Unregister</button></div>
+    </div>
+  </div>
+</div>
+{{end}}
+{{end}}

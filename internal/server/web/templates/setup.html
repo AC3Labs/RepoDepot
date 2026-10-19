@@ -1,0 +1,11 @@
+{{define "content"}}{{$d := .Data}}
+<form class="card pad col" method="post" action="/setup" style="gap:16px">
+  <div><h2>Set up your depot</h2><p class="muted small mt-s">Create the account you'll sign in with. Next you'll add the machines software gets installed on.</p></div>
+  {{with index $d "Error"}}<div class="notice bad">{{template "i-alert"}}<div>{{.}}</div></div>{{end}}
+  <div class="field"><label for="name">Your name</label><input class="input" id="name" name="name" value="{{index $d "Name"}}" required autofocus></div>
+  <div class="field"><label for="email">Email</label><input class="input" id="email" name="email" type="email" value="{{index $d "Email"}}" required autocomplete="username"></div>
+  <div class="field"><label for="password">Password</label><input class="input" id="password" name="password" type="password" minlength="8" required autocomplete="new-password"></div>
+  <div class="field"><label for="pc">Confirm password</label><input class="input" id="pc" name="password_confirm" type="password" minlength="8" required autocomplete="new-password"></div>
+  <button class="btn primary lg">Create account</button>
+</form>
+{{end}}

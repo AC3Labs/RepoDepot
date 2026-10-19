@@ -1,0 +1,10 @@
+{{define "content"}}{{$d := .Data}}
+<form class="card pad col" method="post" action="/login" style="gap:16px">
+  <div><h2>Sign in</h2><p class="muted small mt-s">Welcome back to your depot.</p></div>
+  {{with index $d "Error"}}<div class="notice bad">{{template "i-alert"}}<div>{{.}}</div></div>{{end}}
+  <input type="hidden" name="next" value="{{index $d "Next"}}">
+  <div class="field"><label for="email">Email</label><input class="input" id="email" name="email" type="email" value="{{index $d "Email"}}" required autofocus autocomplete="username"></div>
+  <div class="field"><label for="password">Password</label><input class="input" id="password" name="password" type="password" required autocomplete="current-password"></div>
+  <button class="btn primary lg">Sign in</button>
+</form>
+{{end}}
