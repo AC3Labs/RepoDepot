@@ -33,6 +33,9 @@ type Job struct {
 	// AssetURL / AssetName are the release file (release method).
 	AssetURL  string `json:"asset_url,omitempty"`
 	AssetName string `json:"asset_name,omitempty"`
+	// AssetSHA256, when known (GitHub's digest or the release's checksum
+	// file), is checked before anything is installed.
+	AssetSHA256 string `json:"asset_sha256,omitempty"`
 	// Token, when set, is sent to GitHub with downloads (private repos,
 	// rate limits). Never logged.
 	Token string `json:"token,omitempty"`

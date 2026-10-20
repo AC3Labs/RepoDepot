@@ -19,7 +19,7 @@
               <template x-for="t in (repo.topics||[]).slice(0,8)" :key="t"><a class="chip" :href="'/discover?q=topic:'+t" x-text="t"></a></template>
             </div>
             <div class="row wrap mt" style="gap:10px">
-              <button class="btn primary lg" @click="openInstall()">{{template "i-download"}}Install</button>
+              <button class="btn primary lg need-member" @click="openInstall()">{{template "i-download"}}Install</button>
               <a class="btn lg" :href="repo.html_url" target="_blank" rel="noopener">{{template "i-external"}}GitHub</a>
               <a class="btn ghost lg" x-show="repo.homepage" :href="repo.homepage" target="_blank" rel="noopener">{{template "i-link"}}Website</a>
             </div>

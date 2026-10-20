@@ -11,15 +11,19 @@
       <p class="muted mt-s" x-text="a.description"></p>
       <div class="row wrap mt">
         <a class="btn primary" x-show="a.options.open_url" :href="a.options.open_url" target="_blank" rel="noopener">{{template "i-external"}}Open</a>
-        <button class="btn primary" x-show="a.update_available && a.method!=='track'" :disabled="busy(a)" @click="update()">{{template "i-up"}}Update to <span x-text="a.latest_label"></span></button>
-        <button class="btn" x-show="a.update_available && a.method==='track'" @click="markUpdated()" title="You updated it yourself">{{template "i-check"}}Mark updated to <span x-text="a.latest_label"></span></button>
-        <button class="btn" x-show="a.method!=='track'" :disabled="busy(a)" @click="reinstall()">{{template "i-refresh"}}Reinstall</button>
+        <button class="btn primary need-member" x-show="a.update_available && a.method!=='track'" :disabled="busy(a)" @click="update()">{{template "i-up"}}Update to <span x-text="a.latest_label"></span></button>
+        <button class="btn need-member" x-show="a.update_available && a.method==='track'" @click="markUpdated()" title="You updated it yourself">{{template "i-check"}}Mark updated to <span x-text="a.latest_label"></span></button>
+        <button class="btn need-member" x-show="a.update_available" @click="skip()" title="Don't offer this version; the next one is offered as usual">Skip this version</button>
+        <button class="btn need-member" x-show="a.previous_ref && a.method!=='track' && a.previous_ref!==a.installed_ref && a.previous_ref!==a.latest_ref" :disabled="busy(a)" @click="rollback()" :title="'Go back to '+a.previous_label">{{template "i-refresh"}}Roll back to <span x-text="a.previous_label"></span></button>
+        <button class="btn need-member" x-show="a.method!=='track'" :disabled="busy(a)" @click="reinstall()">{{template "i-refresh"}}Reinstall</button>
         <a class="btn" :href="a.html_url" target="_blank" rel="noopener">{{template "i-external"}}GitHub</a>
-        <a class="btn ghost" x-show="a.latest_url" :href="a.latest_url" target="_blank" rel="noopener">What's new</a>
+        <a class="btn ghost" x-show="a.latest_url" :href="a.latest_url" target="_blank" rel="noopener">Latest on GitHub</a>
       </div>
     </div>
   </div>
   <div class="progress" x-show="busy(a)" x-cloak style="margin-bottom:18px"><div></div></div>
+  <div class="notice info" x-show="a.skipped_ref && a.skipped_ref===a.latest_ref && !a.held" x-cloak style="margin-bottom:18px">{{template "i-info"}}<div class="grow">You skipped <b x-text="a.latest_label"></b>. The next version will be offered as usual.</div><button class="btn sm need-member" @click="unskip()">Offer it again</button></div>
+  <div class="notice warn" x-show="a.held" x-cloak style="margin-bottom:18px">{{template "i-alert"}}<div class="grow">Updates are on hold for this app: none are offered or installed automatically<span x-show="a.latest_ref && a.latest_ref!==a.installed_ref"> (<span x-text="a.latest_label"></span> is out)</span>.</div><button class="btn sm need-member" @click="setHeld(false)">Resume updates</button></div>
 
   <div class="stats">
     <div class="card stat"><div class="ico">{{template "i-tag"}}</div><div class="grow" style="min-width:0"><div class="l">Installed</div><div class="truncate" style="font-weight:650" x-text="a.installed_label||'—'"></div><div class="tiny muted" x-text="a.installed_at ? a.installed_ago : ''"></div></div></div>
@@ -29,8 +33,48 @@
 
   <div class="tabs">
     <button :class="tab==='activity'&&'on'" @click="tab='activity'">Activity</button>
-    <button :class="tab==='settings'&&'on'" @click="tab='settings'">Settings</button>
-    <button :class="tab==='remove'&&'on'" @click="tab='remove'">Remove</button>
+    <button :class="tab==='changes'&&'on'" @click="openChanges()" x-show="a.latest_ref && a.installed_ref && a.latest_ref!==a.installed_ref">What's new</button>
+    <button :class="tab==='versions'&&'on'" @click="openVersions()" class="need-member" x-show="a.method!=='track'">Versions</button>
+    <button :class="tab==='settings'&&'on'" @click="tab='settings'" class="need-member">Settings</button>
+    <button :class="tab==='remove'&&'on'" @click="tab='remove'" class="need-member">Remove</button>
+  </div>
+
+  <div x-show="tab==='changes'" class="card" x-cloak>
+    <template x-if="changes===null"><div class="empty"><span class="spinner"></span> Loading what changed…</div></template>
+    <template x-if="changes && changesError"><div class="empty" x-text="changesError"></div></template>
+    <template x-if="changes && !changesError && changes.releases.length===0 && changes.commits.length===0"><div class="empty">No details published for this update.</div></template>
+    <template x-for="r in (changes ? changes.releases : [])" :key="r.title">
+      <div class="release-notes">
+        <h4><a :href="r.url" target="_blank" rel="noopener" x-text="r.title"></a><span class="pill warn" x-show="r.pre">Pre-release</span><span class="tiny muted" x-text="fmtDate(r.date)"></span></h4>
+        <div class="markdown small" x-html="r.html || '<p class=muted>No release notes.</p>'"></div>
+      </div>
+    </template>
+    <template x-if="changes && changes.commits.length">
+      <div>
+        <div class="small dim" style="padding:14px 18px 6px" x-text="changes.commits.length+(changes.commits.length===1?' commit':' commits')+' since the installed version (newest first)'"></div>
+        <template x-for="c in changes.commits" :key="c.sha">
+          <div class="commit-line"><a class="mono small" :href="c.url" target="_blank" rel="noopener" x-text="c.sha"></a><span class="grow small" x-text="c.message"></span><span class="tiny muted nowrap hide-sm" x-text="c.author"></span><span class="tiny muted nowrap" x-text="fmtDate(c.date)"></span></div>
+        </template>
+      </div>
+    </template>
+  </div>
+
+  <div x-show="tab==='versions'" class="card" x-cloak>
+    <div class="small dim" style="padding:14px 18px 4px">Put <b x-text="a.name"></b> on any version: newer, older or the same. Picking an older one skips the newest version until you offer it again.</div>
+    <template x-if="versions===null"><div class="empty"><span class="spinner"></span> Loading versions…</div></template>
+    <div class="version-list" x-show="versions && versions.length">
+      <template x-for="v in (versions || [])" :key="v.ref">
+        <div class="version-row">
+          <span class="grow truncate"><a :href="v.url" target="_blank" rel="noopener" x-text="v.label"></a></span>
+          <span class="pill warn" x-show="v.pre">Pre-release</span>
+          <span class="pill ok" x-show="v.note==='installed'">Installed</span>
+          <span class="pill info" x-show="v.note==='latest'">Latest</span>
+          <span class="pill muted" x-show="v.note==='previous'">Previous</span>
+          <span class="tiny muted nowrap hide-sm" x-text="fmtDate(v.date)"></span>
+          <button class="btn sm" :disabled="busy(a) || v.note==='installed'" @click="installVersion(v)" x-text="v.note==='installed' ? 'Installed' : 'Install'"></button>
+        </div>
+      </template>
+    </div>
   </div>
 
   <div x-show="tab==='activity'" class="card">
@@ -39,7 +83,7 @@
       <div class="job">
         <div class="job-row" @click="toggle(j)">
           <span x-html="jobPill(j)"></span>
-          <b x-text="title(j.action)"></b><span class="dim truncate" x-text="j.ref"></span>
+          <b x-text="title(j.action)"></b><span class="dim truncate" x-text="j.ref"></span><span class="tiny muted nowrap hide-sm" x-show="j.started_by" x-text="'by '+j.started_by"></span>
           <span class="spacer"></span><span class="tiny muted nowrap" x-text="fmtDate(j.created_at)"></span>
         </div>
         <div x-show="open[j.id]" style="padding:0 18px 16px" x-cloak>
@@ -57,6 +101,11 @@
       </div>
       <div class="field" x-show="s.track==='commit'"><label>Branch</label><input class="input" x-model="s.branch" placeholder="default branch"></div>
     </div>
+    <div class="form-grid mt" x-show="s.track!=='commit'">
+      <div class="field"><label>Pre-releases (betas, release candidates)</label>
+        <select class="select" x-model="s.options.prerelease"><option value="">Use the default (Settings → Updates)</option><option value="yes">Offer them</option><option value="no">Never offer them</option></select></div>
+      <div class="field"><label>Ignore versions matching</label><input class="input mono" x-model="s.options.ignore_versions" placeholder="e.g. nightly|-rc"><span class="help">A pattern (regular expression, case doesn't matter). Matching versions are never offered.</span></div>
+    </div>
     <div class="form-grid mt" x-show="a.method==='track'">
       <div class="field"><label>Version installed now</label><input class="input mono" x-model="s.installed"></div>
       <div class="field"><label>Where it is</label><input class="input mono" x-model="s.location"></div>
@@ -66,6 +115,7 @@
     <div class="col mt">
       <label class="switch" x-show="a.method!=='track'"><input type="checkbox" x-model="s.auto_update"><span class="track"></span><span>Install updates automatically</span></label>
       <label class="switch"><input type="checkbox" x-model="s.notify"><span class="track"></span><span>Notify me about updates</span></label>
+      <label class="switch"><input type="checkbox" x-model="s.held"><span class="track"></span><span>Hold updates <span class="muted small">(offer and install none until turned off)</span></span></label>
     </div>
     <div class="col mt-l">
       <template x-if="a.method==='release'">

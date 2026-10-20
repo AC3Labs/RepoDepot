@@ -18,14 +18,28 @@ it updated, from one fast web app.
   Update one, the selected ones, or all.
 - **Updates:** track releases, tags, or every commit on a branch. Checks run on
   a schedule; unchanged repos cost nothing against GitHub's rate limit (ETags).
-  Optional auto-update per app.
-- **Notifications** via [ntfy](https://ntfy.sh): "Update for X", with an
-  **Update now** button that works from your phone (a signed one-update link
-  that expires after 7 days).
+  Optional auto-update per app, limited to set hours if you like.
+- **In control of every update:** see what's new (release notes or the commit
+  list) before updating, skip a version, hold an app, ignore versions matching
+  a pattern, choose pre-releases per app, install any older version, or roll
+  back to the previous one in one click.
+- **Checked downloads:** release files are verified against GitHub's SHA-256
+  digest or the release's checksum file before anything is installed.
+- **Notifications** via [ntfy](https://ntfy.sh), email, or a webhook
+  (Discord, Slack or JSON): "Update for X", with an **Update now** button
+  that works from your phone (a signed one-update link that expires after 7 days).
+- **Users:** invite people by email as admins, members (install and update)
+  or viewers (look only). Forgotten passwords are reset by email. An audit log
+  shows who changed what.
+- **Your stars:** browse the repos you've starred on GitHub and install from there.
+- **Backups:** a daily copy of the database, kept for as many days as you choose,
+  and a download button.
 - **Uninstall** removes exactly what was installed (recorded in
   `.repodepot.json`), optionally with its data. **Unregister** stops tracking
   without touching the machine.
 - **Every setting** is editable in Settings; nothing needs a config file.
+
+Not affiliated with or endorsed by GitHub, Inc.
 
 ## Run it
 

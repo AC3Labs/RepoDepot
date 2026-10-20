@@ -2,6 +2,51 @@
 
 Versioned as `release.feature.fix.patch`.
 
+## [0.3.0.0] - 2026-10-19
+
+### Added
+- Users: invite people by email from Settings → Users as an admin, member
+  (installs, updates and removes apps) or viewer (looks only). Without a mail
+  server the invite link is shown to send yourself. Change roles, resend or
+  cancel invites, remove people (they're signed out at once).
+- Email: Settings → Email for your mail server, with a test button. Used for
+  invites, "Forgot your password?" (one-hour links), and optionally
+  notifications.
+- Webhook notifications in Discord, Slack or plain JSON format.
+- What's new: an app's release notes (or commit list) between the installed
+  and latest version, before you update.
+- Versions: install any recent release, tag or commit, newer or older.
+  Roll back to the previous version in one click; rolling back skips the
+  newer version so it isn't put straight back.
+- Skip a version, hold an app's updates, ignore versions matching a pattern,
+  and choose pre-releases per app.
+- Auto-updates can be limited to set hours (e.g. 2 to 6 at night), in the
+  time zone set in Settings → General (Docker containers run on UTC).
+- Release downloads are checked against GitHub's SHA-256 digest or the
+  release's checksums file; a mismatch is refused and nothing changes.
+- Discover → Your stars: the repos you've starred on GitHub.
+- Activity → Audit log (who changed users, machines and settings), and who
+  started each job.
+- Backups: a daily copy of the database (kept 7 days by default) and a
+  download button in Settings → Backups.
+- Machines show when their agent is older than the server.
+
+### Changed
+- An automatic update that fails is tried once per version, not again at
+  every check.
+- The agent install script only uses the saved public address or a
+  well-formed host name.
+- A GitHub "forbidden" answer that isn't a rate limit shows GitHub's reason.
+- One-tap update links respect a hold or skip made after they were sent.
+- Built with Go 1.27.3 (12 standard library security fixes) on Alpine 3.24.
+
+### Fixed
+- Changing your email to one another account uses said "saved" but did nothing.
+- "Update selected" offered tracked-only apps.
+- An app with no jobs showed a blank "undefined" job on its page.
+- My Depot's "Updates available" count left out tracked-only apps (the
+  sidebar counted them).
+
 ## [0.2.0.0] - 2026-10-19
 
 ### Added

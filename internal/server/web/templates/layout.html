@@ -1,6 +1,6 @@
 {{define "layout"}}<!doctype html>
-<html lang="en" data-theme="dark" data-density="{{.Density}}">
-<head>{{template "head" .}}<meta name="csrf" content="{{.CSRF}}"></head>
+<html lang="en" data-theme="dark" data-density="{{.Density}}" data-role="{{if .User}}{{.User.Role}}{{end}}">
+<head>{{template "head" .}}<meta name="csrf" content="{{.CSRF}}"><meta name="user" content="{{if .User}}{{.User.ID}}{{end}}"></head>
 <body>
 <div class="app" x-data="shell({{.Updates}})" @keydown.window="hotkey($event)">
   <aside class="sidebar" :class="menu && 'open'" @click.outside="menu=false">
@@ -18,7 +18,7 @@
     <div class="sidebar-foot">
       <div class="user-chip">
         <div class="avatar">{{if .User}}{{slice .User.Name 0 1}}{{end}}</div>
-        <div class="grow"><div class="truncate small" style="font-weight:600">{{if .User}}{{.User.Name}}{{end}}</div><div class="truncate tiny muted">{{if .User}}{{.User.Email}}{{end}}</div></div>
+        <div class="grow"><div class="truncate small" style="font-weight:600">{{if .User}}{{.User.Name}}{{end}}</div><div class="truncate tiny muted">{{if .User}}{{.User.Email}}{{if ne .User.Role "admin"}} · {{title .User.Role}}{{end}}{{end}}</div></div>
         <form method="post" action="/logout"><input type="hidden" name="_csrf" value="{{.CSRF}}"><button class="btn ghost sm icon" title="Sign out" aria-label="Sign out">{{template "i-logout"}}</button></form>
       </div>
       <div class="tiny muted">The Repo Depot {{.Version}}</div>

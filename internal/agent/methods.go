@@ -234,6 +234,12 @@ func (a *Agent) installRelease(ctx context.Context, j *spec.Job, l *jobLog) (str
 	if err := download(ctx, j.AssetURL, j.Token, tmp, l); err != nil {
 		return "", err
 	}
+	if j.AssetSHA256 != "" {
+		if err := verifySHA256(tmp, j.AssetSHA256); err != nil {
+			return "", err
+		}
+		l.Printf("✓ Checksum matches (SHA-256)")
+	}
 	old := readManifest(j.Dir)
 	m := &spec.Manifest{App: j.App, Repo: j.Repo, Method: j.Method, Ref: j.Ref}
 	if old != nil {

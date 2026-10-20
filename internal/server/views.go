@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"io/fs"
 	"log"
 	"net/http"
 	"strings"
@@ -83,7 +82,7 @@ func humanNum(n int) string {
 	return fmt.Sprint(n)
 }
 
-var pages = []string{"depot", "discover", "repo", "app", "machines", "activity", "settings", "login", "setup"}
+var pages = []string{"depot", "discover", "repo", "app", "machines", "activity", "settings", "login", "setup", "password", "message", "forgot"}
 
 func (s *Server) loadTemplates() error {
 	s.tmpl = map[string]*template.Template{}
@@ -107,7 +106,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, page
 		p.Updates = s.updateCount()
 	}
 	layout := "layout"
-	if page == "login" || page == "setup" {
+	if page == "login" || page == "setup" || page == "password" || page == "message" || page == "forgot" {
 		layout = "guest"
 	}
 	var buf bytes.Buffer
@@ -123,12 +122,6 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, page
 
 func (s *Server) updateCount() int {
 	var n int
-	s.store.db.QueryRow(`SELECT count(*) FROM apps WHERE latest_ref != '' AND installed_ref != '' AND latest_ref != installed_ref AND status IN ('installed', 'error')`).Scan(&n)
+	s.store.db.QueryRow(`SELECT count(*) FROM apps WHERE ` + updateAvailableSQL).Scan(&n)
 	return n
-}
-
-// staticFS lists the embedded assets (used by tests).
-func staticFS() fs.FS {
-	sub, _ := fs.Sub(webFS, "web/static")
-	return sub
 }

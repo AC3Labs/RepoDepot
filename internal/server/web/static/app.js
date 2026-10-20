@@ -75,6 +75,7 @@ function statusPill(a) {
   };
   let [cls, label] = map[a.status] || ["muted", a.status];
   if (a.status === "installed" && a.update_available) [cls, label] = ["warn", "Update available"];
+  if (a.status === "installed" && a.held) [cls, label] = ["muted", "Updates on hold"];
   if (a.status === "installed" && a.machine_status === "offline") [cls, label] = ["muted", "Machine offline"];
   return '<span class="pill ' + cls + '">' + esc(label) + "</span>";
 }
@@ -164,7 +165,7 @@ function depot(apps, machines, view, lastCheck) {
     setView(v) { this.view = v; try { localStorage.setItem("depot-view", v); } catch (e) { } },
     allSelected() { return this.shown.length > 0 && this.shown.every(a => this.selected[a.id]); },
     selectAll(on) { for (const a of this.shown) this.selected[a.id] = on; },
-    selectedUpdatable() { return this.apps.filter(a => this.selected[a.id] && a.update_available && !busy(a)).map(a => a.id); },
+    selectedUpdatable() { return this.apps.filter(a => this.selected[a.id] && a.update_available && !busy(a) && a.method !== "track").map(a => a.id); },
     async checkNow() {
       this.checking = true;
       try {
@@ -199,7 +200,7 @@ function depot(apps, machines, view, lastCheck) {
 
 function discover(initial) {
   return {
-    q: initial || "", sort: "", page: 1, items: [], total: 0, loading: false, error: "", cursor: -1, ctl: null, prefetched: {},
+    q: initial || "", sort: "", page: 1, items: [], total: 0, loading: false, error: "", cursor: -1, ctl: null, prefetched: {}, stars: false,
     suggestions: [["Self-hosted", "topic:self-hosted"], ["Media server", "media server"], ["Home automation", "home automation"],
       ["Dashboards", "topic:dashboard self-hosted"], ["Backups", "backup tool"], ["Monitoring", "topic:monitoring"],
       ["Password managers", "password manager self-hosted"], ["CLI tools", "topic:cli"]],
@@ -211,7 +212,18 @@ function discover(initial) {
     },
     setSort(s) { this.sort = s; this.search(1); },
     key(page) { return "rd-search|" + this.q.trim() + "|" + this.sort + "|" + page; },
+    async loadStars(page) {
+      if (this.ctl) this.ctl.abort();
+      this.stars = true; this.q = ""; this.loading = true; this.error = "";
+      try {
+        const r = await api("GET", "/api/starred?page=" + page);
+        this.items = page === 1 ? r.items : this.items.concat(r.items);
+        this.page = page; this.total = this.items.length + (r.more ? 1 : 0); this.cursor = -1;
+      } catch (e) { this.error = e.message; this.items = []; }
+      this.loading = false;
+    },
     async search(page) {
+      this.stars = false;
       const q = this.q.trim();
       const url = new URL(location); q ? url.searchParams.set("q", q) : url.searchParams.delete("q");
       this.sort ? url.searchParams.set("sort", this.sort) : url.searchParams.delete("sort");
@@ -353,11 +365,14 @@ function repoPage(full, machines, defaults) {
 
 function appPage(app, jobs) {
   return {
-    a: app, jobs, tab: "activity", open: {}, removeData: false, saving: false, timer: null,
-    s: { track: app.track, branch: app.branch, auto_update: app.auto_update, notify: app.notify, options: Object.assign({}, app.options),
+    a: app, jobs, tab: "activity", open: {}, removeData: false, saving: false, timer: null, changes: null, changesError: "", versions: null,
+    s: { track: app.track, branch: app.branch, auto_update: app.auto_update, notify: app.notify, held: app.held,
+      options: Object.assign({ prerelease: "", ignore_versions: "" }, app.options),
       installed: app.installed_ref, location: app.location || app.dir },
     start() {
-      if (this.jobs.length) this.open[this.jobs[0].id] = this.jobs[0].status !== "done" || true;
+      if (this.jobs.length) this.open[this.jobs[0].id] = true;
+      const t = new URLSearchParams(location.search).get("tab");
+      if (t === "changes") this.openChanges(); else if (t === "versions") this.openVersions(); else if (t) this.tab = t;
       this.schedule();
     },
     schedule() {
@@ -382,6 +397,50 @@ function appPage(app, jobs) {
       catch (e) { toast(e.message, "bad"); }
     },
     update() { this.run("/update", {}, "Updating " + this.a.name); },
+    async openChanges() {
+      this.tab = "changes";
+      if (this.changes && this.changes.for === this.a.latest_ref) return;
+      this.changes = null; this.changesError = "";
+      try { const r = await api("GET", "/api/apps/" + this.a.id + "/changes"); r.for = this.a.latest_ref; this.changes = r; }
+      catch (e) { this.changes = { releases: [], commits: [] }; this.changesError = e.message; }
+    },
+    async openVersions() {
+      this.tab = "versions";
+      if (this.versions) return;
+      try { this.versions = (await api("GET", "/api/apps/" + this.a.id + "/versions")).versions; }
+      catch (e) { this.versions = []; toast(e.message, "bad"); }
+    },
+    async installVersion(v) {
+      if (!confirm("Put " + this.a.name + " on " + this.a.machine_name + " on " + v.label + "?")) return;
+      try {
+        const r = await api("POST", "/api/apps/" + this.a.id + "/update", { ref: v.ref });
+        this.a.status = "updating"; this.tab = "activity"; this.versions = null;
+        toast("Installing " + v.label, "info", r.skipped ? r.skipped + " is skipped until you offer it again." : "");
+        this.refresh();
+      } catch (e) { toast(e.message, "bad"); }
+    },
+    async rollback() {
+      if (!confirm("Roll " + this.a.name + " back to " + this.a.previous_label + "?")) return;
+      try {
+        const r = await api("POST", "/api/apps/" + this.a.id + "/update", { ref: this.a.previous_ref });
+        this.a.status = "updating"; this.tab = "activity";
+        toast("Rolling back to " + this.a.previous_label, "info", r.skipped ? r.skipped + " is skipped until you offer it again." : "");
+        this.refresh();
+      } catch (e) { toast(e.message, "bad"); }
+    },
+    async skip() {
+      try { await api("POST", "/api/apps/" + this.a.id + "/skip", {}); toast("Skipped " + this.a.latest_label); this.refresh(); }
+      catch (e) { toast(e.message, "bad"); }
+    },
+    async unskip() {
+      try { await api("POST", "/api/apps/" + this.a.id + "/skip", { undo: true }); toast(this.a.latest_label + " is offered again"); this.refresh(); }
+      catch (e) { toast(e.message, "bad"); }
+    },
+    async setHeld(on) {
+      this.s.held = on;
+      try { await api("POST", "/api/apps/" + this.a.id + "/settings", this.s); toast(on ? "Updates on hold" : "Updates resumed"); this.refresh(); }
+      catch (e) { toast(e.message, "bad"); }
+    },
     async findLogo() {
       try { const r = await api("POST", "/api/apps/" + this.a.id + "/logo"); this.a.logo_url = r.logo_url + "?t=" + Date.now(); toast("Logo updated"); }
       catch (e) { toast(e.message, "bad"); }
@@ -414,9 +473,18 @@ function appPage(app, jobs) {
 
 // ---- machines ----
 
-function machinesPage(list, port, welcome) {
+// newerVersion: is version a newer than b? (numbers compared in order)
+function newerVersion(a, b) {
+  const x = (a.match(/\d+/g) || []).map(Number), y = (b.match(/\d+/g) || []).map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+  }
+  return false;
+}
+
+function machinesPage(list, port, welcome, version) {
   return {
-    list, port, welcome, state: {}, apps: {}, seen: {}, dlg: false, created: false, saving: false, waiting: false, online: false,
+    list, port, welcome, version, state: {}, apps: {}, seen: {}, dlg: false, created: false, saving: false, waiting: false, online: false,
     form: {}, cmds: {}, poll: null,
     start() {
       for (const m of this.list) this.check(m);
@@ -468,28 +536,38 @@ function machinesPage(list, port, welcome) {
       try { await api("POST", "/api/machines/" + this.form.id + "/delete"); this.list = this.list.filter(x => x.id !== this.form.id); this.dlg = false; toast("Deleted"); }
       catch (e) { toast(e.message, "bad"); }
     },
+    agentOld(m) { return !!m.agent_version && /\d/.test(this.version) && /\d/.test(m.agent_version) && newerVersion(this.version, m.agent_version); },
     copy: copyText,
   };
 }
 
 // ---- activity ----
 
-function activityPage(jobs) {
+function activityPage(jobs, events) {
   return {
-    jobs, open: {}, filter: "", timer: null,
+    jobs, events, view: "jobs", open: {}, filter: "", timer: null,
     get shown() { return this.jobs.filter(j => !this.filter || j.status === this.filter); },
     start() { this.schedule(); },
     schedule() { this.timer = setTimeout(() => this.refresh(), this.jobs.some(j => j.status === "running") ? 1500 : 10000); },
-    async refresh() { try { this.jobs = (await api("GET", "/api/jobs")).jobs; } catch (e) { } this.schedule(); },
+    async refresh() {
+      try {
+        const [j, e] = await Promise.all([api("GET", "/api/jobs"), api("GET", "/api/events")]);
+        this.jobs = j.jobs; this.events = e.events;
+      } catch (e) { }
+      this.schedule();
+    },
     toggle(j) { this.open[j.id] = !this.open[j.id]; },
   };
 }
 
 // ---- settings ----
 
-function settingsPage(tab) {
+function settingsPage(tab, admin) {
   return {
-    tab: tab || "general", saving: false,
+    tab: tab || (admin ? "general" : "account"), saving: false,
+    users: [], me: Number((document.querySelector('meta[name="user"]') || {}).content || 0),
+    inv: { email: "", name: "", role: "member" }, inviting: false, link: "", linkNote: "",
+    start() { if (admin) this.loadUsers(); },
     go(t) { this.tab = t; const u = new URL(location); u.searchParams.set("tab", t); history.replaceState(null, "", u); },
     async save(form) {
       this.saving = true;
@@ -507,10 +585,46 @@ function settingsPage(tab) {
       try { await api("POST", "/api/settings", { [key]: "__clear__" }); toast("Cleared"); setTimeout(() => location.reload(), 300); }
       catch (e) { toast(e.message, "bad"); }
     },
-    async testNtfy() {
-      try { await api("POST", "/api/settings/test-ntfy"); toast("Test notification sent", "ok", "Check the ntfy app on your phone."); }
+    async test(kind) {
+      try {
+        const r = await api("POST", "/api/settings/test-" + kind);
+        if (kind === "email") toast("Test email sent", "ok", "To " + r.to + ". Check your inbox (and spam folder).");
+        else if (kind === "webhook") toast("Test sent to the webhook");
+        else toast("Test notification sent", "ok", "Check the ntfy app on your phone.");
+      } catch (e) { toast(e.message, "bad", kind === "ntfy" || kind === "email" ? "Save your changes first if you just edited them." : ""); }
+    },
+    async loadUsers() { try { this.users = (await api("GET", "/api/users")).users; } catch (e) { toast(e.message, "bad"); } },
+    showLink(r, who) {
+      this.link = r.link;
+      this.linkNote = r.emailed ? "Invite emailed to " + who + ". You can also share this link:"
+        : (r.email_error ? "The email couldn't be sent (" + r.email_error + "). Send " + who + " this link yourself:" : "Send " + who + " this link:");
+      if (r.emailed) toast("Invite sent to " + who); else toast("Invite created", "info", "Copy the link and send it to " + who + ".");
+    },
+    async invite() {
+      this.inviting = true;
+      try {
+        const r = await api("POST", "/api/users/invite", this.inv);
+        this.showLink(r, this.inv.email);
+        this.inv = { email: "", name: "", role: this.inv.role };
+        this.loadUsers();
+      } catch (e) { toast(e.message, "bad"); }
+      this.inviting = false;
+    },
+    async resend(u) {
+      try { this.showLink(await api("POST", "/api/users/" + u.id + "/resend"), u.email); this.loadUsers(); }
       catch (e) { toast(e.message, "bad"); }
     },
+    async setRole(u, ev) {
+      const role = ev.target.value;
+      try { await api("POST", "/api/users/" + u.id + "/role", { role }); u.role = role; toast(u.name + " is now " + (role === "admin" ? "an admin" : "a " + role)); }
+      catch (e) { ev.target.value = u.role; toast(e.message, "bad"); }
+    },
+    async removeUser(u) {
+      if (!confirm(u.pending ? "Cancel the invite for " + u.email + "?" : "Remove " + u.name + " (" + u.email + ")? They're signed out straight away.")) return;
+      try { await api("POST", "/api/users/" + u.id + "/delete"); this.users = this.users.filter(x => x.id !== u.id); toast(u.pending ? "Invite cancelled" : "Removed " + u.name); }
+      catch (e) { toast(e.message, "bad"); }
+    },
+    copy: copyText,
     async saveAccount(form) {
       const f = Object.fromEntries(new FormData(form).entries());
       try { await api("POST", "/api/account", { Name: f.name, Email: f.email, Current: f.current, New: f.new }); toast("Account saved"); form.current.value = ""; form.new.value = ""; }

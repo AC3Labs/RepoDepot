@@ -21,10 +21,12 @@
       <button :class="sort==='updated'&&'on'" @click="setSort('updated')">{{template "i-clock"}}Recently updated</button>
     </div>
     <div class="suggest">
+      <button :class="stars && 'on'" @click="loadStars(1)" title="Repos you've starred on GitHub">{{template "i-star"}}Your stars</button>
       <template x-for="s in suggestions" :key="s[1]"><button @click="q=s[1];search(1)" x-text="s[0]"></button></template>
     </div>
     <div class="spacer"></div>
-    <span class="small muted" x-show="total>0 && !q" x-cloak>Popular self-hosted projects</span>
+    <span class="small muted" x-show="stars" x-cloak x-text="items.length+' starred repos'"></span>
+    <span class="small muted" x-show="total>0 && !q && !stars" x-cloak>Popular self-hosted projects</span>
     <span class="small muted" x-show="total>0 && q" x-cloak x-text="total.toLocaleString()+' repos'"></span>
   </div>
 
@@ -56,7 +58,7 @@
       <div class="card empty"><h3>No repos found</h3><p>Try fewer or different words.</p></div>
     </template>
     <div class="row" style="justify-content:center" x-show="items.length < total && items.length>0" x-cloak>
-      <button class="btn" @click="search(page+1)" :disabled="loading"><span class="spinner" x-show="loading"></span>Load more</button>
+      <button class="btn" @click="stars ? loadStars(page+1) : search(page+1)" :disabled="loading"><span class="spinner" x-show="loading"></span>Load more</button>
     </div>
   </div>
 </div>

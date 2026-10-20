@@ -188,7 +188,14 @@ func (g *GitHub) fetch(ctx context.Context, u, key, accept string, old *cached) 
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode == 403 || resp.StatusCode == 429 {
+	limited := resp.StatusCode == 429 || resp.StatusCode == 403 && (resp.Header.Get("X-RateLimit-Remaining") == "0" || resp.Header.Get("Retry-After") != "" || strings.Contains(strings.ToLower(string(body)), "rate limit"))
+	if resp.StatusCode == 403 && !limited {
+		// Forbidden for another reason (a private repo the token can't
+		// see, a blocked repo): GitHub's own message says why.
+		c := &cached{status: resp.StatusCode, body: body, fetched: time.Now()}
+		return c, nil
+	}
+	if limited {
 		if old != nil {
 			return old, nil
 		}
@@ -288,6 +295,7 @@ type Asset struct {
 	DownloadURL   string `json:"browser_download_url"`
 	APIURL        string `json:"url"`
 	DownloadCount int    `json:"download_count"`
+	Digest        string `json:"digest"` // "sha256:…" on releases published since mid-2025
 }
 
 type Release struct {
@@ -298,6 +306,7 @@ type Release struct {
 	Prerelease  bool    `json:"prerelease"`
 	PublishedAt string  `json:"published_at"`
 	Body        string  `json:"body"`
+	BodyHTML    string  `json:"body_html"`
 	Assets      []Asset `json:"assets"`
 }
 
@@ -314,6 +323,7 @@ type Commit struct {
 	Commit  struct {
 		Message string `json:"message"`
 		Author  struct {
+			Name string `json:"name"`
 			Date string `json:"date"`
 		} `json:"author"`
 	} `json:"commit"`
@@ -376,7 +386,7 @@ func (g *GitHub) Readme(ctx context.Context, full string) (string, error) {
 
 func (g *GitHub) Releases(ctx context.Context, full string, ttl time.Duration) ([]Release, error) {
 	var out []Release
-	return out, g.getJSON(ctx, "/repos/"+full+"/releases?per_page=15", ttl, &out)
+	return out, g.getJSON(ctx, "/repos/"+full+"/releases?per_page=30", ttl, &out)
 }
 
 // LatestRelease picks the newest published release (optionally including
@@ -452,6 +462,25 @@ func (g *GitHub) FileText(ctx context.Context, full, ref, path string) (string, 
 	}
 	body, err := g.get(ctx, u, g.minutes("cache_repo_minutes"), "application/vnd.github.raw+json")
 	return string(body), err
+}
+
+// Download fetches a small public file (a release's checksum list) without
+// using the API allowance.
+func (g *GitHub) Download(ctx context.Context, u string, limit int64) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "TheRepoDepot/"+Version)
+	resp, err := g.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s answered %s", req.URL.Host, resp.Status)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, limit))
 }
 
 // SourceURL is a tarball of the repo at ref, for agents to download.

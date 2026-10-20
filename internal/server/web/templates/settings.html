@@ -1,16 +1,23 @@
 {{define "content"}}{{$d := .Data}}
-<div x-data="settingsPage({{json (index $d "Tab")}})">
-  <div class="page-head"><div class="grow"><h1>Settings</h1><div class="sub">Everything The Repo Depot does can be changed here.</div></div></div>
+<div x-data="settingsPage({{json (index $d "Tab")}}, {{index $d "Admin"}})" x-init="start()">
+  <div class="page-head"><div class="grow"><h1>Settings</h1><div class="sub">{{if index $d "Admin"}}Everything The Repo Depot does can be changed here.{{else}}Your account. An admin looks after the rest.{{end}}</div></div></div>
   <div class="tabs">
     {{range index $d "Sections"}}<button :class="tab==='{{.Key}}'&&'on'" @click="go('{{.Key}}')">{{.Label}}</button>{{end}}
+    {{if index $d "Admin"}}<button :class="tab==='users'&&'on'" @click="go('users')">Users</button>{{end}}
     <button :class="tab==='account'&&'on'" @click="go('account')">Account</button>
   </div>
 
   {{$rl := index $d "RateLeft"}}
   {{range index $d "Sections"}}
-  <form class="card pad" x-show="tab==='{{.Key}}'" {{if ne .Key "general"}}x-cloak{{end}} @submit.prevent="save($el)">
+  <form class="card pad" x-show="tab==='{{.Key}}'" x-cloak @submit.prevent="save($el)">
     {{if eq .Key "github"}}
       <div class="notice info" style="margin-bottom:6px">{{template "i-info"}}<div>{{if ge $rl 0}}GitHub requests left this hour: <b>{{$rl}}</b> of {{index $d "RateLimit"}} (resets {{index $d "RateReset"}}).{{else}}No GitHub requests made yet since start-up.{{end}} Unchanged answers are re-checked for free.</div></div>
+    {{end}}
+    {{if eq .Key "email"}}
+      <div class="notice info" style="margin-bottom:6px">{{template "i-info"}}<div>With a mail server set up, invites arrive by email, people can reset forgotten passwords, and notifications can be emailed too. Without one, invite links are shown for you to send yourself.</div></div>
+    {{end}}
+    {{if eq .Key "backups"}}
+      <div class="notice info" style="margin-bottom:6px">{{template "i-info"}}<div>A backup is the whole database: apps, machines, users and settings. To restore one, stop The Repo Depot, put the file in the data folder as <span class="mono">repodepot.db</span> (deleting any <span class="mono">repodepot.db-wal</span> and <span class="mono">-shm</span> files next to it), and start it again.</div></div>
     {{end}}
     {{if eq .Key "notifications"}}
       <div class="notice accent" style="margin-bottom:6px">{{template "i-bell"}}<div>Install the <a href="https://ntfy.sh" target="_blank" rel="noopener">ntfy app</a> on your phone and subscribe to your topic. Notifications open this app at <b>{{index $d "Base"}}</b>; set the public address (General) if that isn't how your phone reaches it.</div></div>
@@ -35,14 +42,69 @@
     {{end}}
     <div class="row mt">
       <span class="spacer"></span>
-      {{if eq .Key "notifications"}}<button type="button" class="btn" @click="testNtfy()">{{template "i-bell"}}Send a test</button>{{end}}
+      {{if eq .Key "notifications"}}<button type="button" class="btn" @click="test('webhook')">Test the webhook</button><button type="button" class="btn" @click="test('ntfy')">{{template "i-bell"}}Send a test</button>{{end}}
+      {{if eq .Key "email"}}<button type="button" class="btn" @click="test('email')">Send me a test email</button>{{end}}
+      {{if eq .Key "backups"}}<a class="btn" href="/api/backup">{{template "i-download"}}Download a backup now</a>{{end}}
       <button class="btn primary" :disabled="saving"><span class="spinner" x-show="saving" x-cloak></span>Save</button>
     </div>
+    {{if eq .Key "backups"}}
+      {{with index $d "Backups"}}
+      <div class="mt-l"><div class="label">Saved daily copies</div>
+        <table class="table mt-s"><tbody>{{range .}}<tr><td class="mono small">{{.Name}}</td><td class="small dim">{{.Date}}</td><td class="small dim">{{.Size}}</td><td style="text-align:right"><a class="btn sm" href="/api/backup?file={{.Name}}">Download</a></td></tr>{{end}}</tbody></table>
+      </div>
+      {{end}}
+    {{end}}
   </form>
   {{end}}
 
+  {{if index $d "Admin"}}
+  <div x-show="tab==='users'" x-cloak class="col">
+    <form class="card pad" @submit.prevent="invite()">
+      <h3>Invite someone</h3>
+      <p class="dim small mt-s">{{if index $d "Mail"}}They get an email with a link to choose their password.{{else}}No mail server is set up (Settings → Email), so you'll get a link to send them yourself.{{end}}</p>
+      <div class="form-grid mt">
+        <div class="field"><label>Email</label><input class="input" type="email" x-model="inv.email" required placeholder="name@example.com"></div>
+        <div class="field"><label>Name <span class="muted small">(optional)</span></label><input class="input" x-model="inv.name" maxlength="100"></div>
+        <div class="field"><label>Role</label>
+          <select class="select" x-model="inv.role"><option value="viewer">Viewer: can look, can't change anything</option><option value="member">Member: installs, updates and removes apps</option><option value="admin">Admin: everything, incl. settings, users and machines</option></select>
+        </div>
+      </div>
+      <div class="row mt"><span class="spacer"></span><button class="btn primary" :disabled="inviting"><span class="spinner" x-show="inviting" x-cloak></span>{{template "i-plus"}}Send invite</button></div>
+      <div class="notice accent mt" x-show="link" x-cloak>{{template "i-link"}}<div class="grow" style="min-width:0">
+        <div x-text="linkNote"></div>
+        <div class="row mt-s"><input class="input mono small" readonly :value="link" @focus="$el.select()"><button type="button" class="btn sm" @click="copy(link)">{{template "i-copy"}}Copy</button></div>
+      </div></div>
+    </form>
+    <div class="card" style="overflow-x:auto">
+      <table class="table">
+        <thead><tr><th>Person</th><th>Role</th><th class="hide-sm">Last signed in</th><th></th></tr></thead>
+        <tbody>
+          <template x-for="u in users" :key="u.id">
+            <tr>
+              <td><div style="font-weight:600" x-text="u.name"></div><div class="tiny muted" x-text="u.email"></div>
+                <span class="pill warn mt-s" x-show="u.pending && !u.expired">Invited<span x-show="u.invited_by" x-text="' by '+u.invited_by"></span></span>
+                <span class="pill bad mt-s" x-show="u.expired">Invite expired</span></td>
+              <td><select class="select" style="width:auto" :value="u.role" @change="setRole(u, $event)" :disabled="u.id===me">
+                <option value="viewer">Viewer</option><option value="member">Member</option><option value="admin">Admin</option></select></td>
+              <td class="hide-sm small dim" x-text="u.pending ? '—' : (u.last_login || 'never')"></td>
+              <td class="nowrap" style="text-align:right">
+                <button class="btn sm" x-show="u.pending" @click="resend(u)">Resend invite</button>
+                <button class="btn sm danger" x-show="u.id!==me" @click="removeUser(u)" x-text="u.pending ? 'Cancel invite' : 'Remove'"></button>
+                <span class="tiny muted" x-show="u.id===me">You</span>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+    <div class="card pad small dim">
+      <b>Viewers</b> see everything but change nothing. <b>Members</b> also install, update, roll back and remove apps. <b>Admins</b> also change settings, machines and users.
+    </div>
+  </div>
+  {{end}}
+
   <form class="card pad" x-show="tab==='account'" x-cloak @submit.prevent="saveAccount($el)">
-    <div class="setting-row"><div class="label">Name</div><input class="input" name="name" value="{{.User.Name}}" style="max-width:420px" required></div>
+    <div class="setting-row"><div class="label">Name</div><input class="input" name="name" value="{{.User.Name}}" style="max-width:420px" required maxlength="100"></div>
     <div class="setting-row"><div class="label">Email</div><input class="input" name="email" type="email" value="{{.User.Email}}" style="max-width:420px" required></div>
     <div class="setting-row"><div><div class="label">New password</div><div class="help mt-s">Leave empty to keep your password. Changing it signs you out everywhere else.</div></div><input class="input" name="new" type="password" autocomplete="new-password" style="max-width:420px"></div>
     <div class="setting-row"><div><div class="label">Current password</div><div class="help mt-s">Needed to save changes here.</div></div><input class="input" name="current" type="password" autocomplete="current-password" required style="max-width:420px"></div>

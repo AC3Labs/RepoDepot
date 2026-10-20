@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"sort"
 	"strings"
@@ -358,31 +359,80 @@ type Target struct {
 	Rel   *Release
 }
 
-// latestTarget finds what an app tracking track should be on now.
-func (s *Server) latestTarget(ctx context.Context, repo *Repo, track, branch string, ttl time.Duration) (*Target, error) {
+// TrackOpts says what counts as an update for an app.
+type TrackOpts struct {
+	Track      string // release, tag or commit
+	Branch     string // commits: "" = the default branch
+	Prerelease bool   // releases and tags: offer betas and release candidates
+	Ignore     *regexp.Regexp
+}
+
+// key groups apps that share an answer, so each repo is asked once.
+func (t TrackOpts) key() string {
+	ig := ""
+	if t.Ignore != nil {
+		ig = t.Ignore.String()
+	}
+	return fmt.Sprintf("%s|%s|%v|%s", t.Track, t.Branch, t.Prerelease, ig)
+}
+
+func (t TrackOpts) skip(version string) bool {
+	return t.Ignore != nil && t.Ignore.MatchString(version)
+}
+
+// trackFor is an app's update rules: its own settings, else the defaults.
+func (s *Server) trackFor(a *App) TrackOpts {
+	t := TrackOpts{Track: a.Track, Branch: a.Branch, Prerelease: s.settings.Bool("include_prereleases")}
+	switch a.Options.Prerelease {
+	case "yes":
+		t.Prerelease = true
+	case "no":
+		t.Prerelease = false
+	}
+	if p := strings.TrimSpace(a.Options.IgnoreVersions); p != "" {
+		t.Ignore, _ = regexp.Compile("(?i)" + p) // checked when saved
+	}
+	return t
+}
+
+// latestTarget finds what an app with these rules should be on now.
+func (s *Server) latestTarget(ctx context.Context, repo *Repo, t TrackOpts, ttl time.Duration) (*Target, error) {
 	full := repo.FullName
-	switch track {
+	switch t.Track {
 	case "release":
-		r, err := s.gh.LatestRelease(ctx, full, s.settings.Bool("include_prereleases"), ttl)
+		rels, err := s.gh.Releases(ctx, full, ttl)
 		if err != nil {
 			return nil, err
 		}
-		if r == nil {
-			return nil, &GitHubError{Status: 404, Message: "This repo has no releases; track commits instead."}
+		for i := range rels {
+			r := &rels[i]
+			if r.Draft || (r.Prerelease && !t.Prerelease) || t.skip(r.TagName) {
+				continue
+			}
+			return &Target{Ref: r.TagName, Label: r.TagName, URL: r.HTMLURL, Date: r.PublishedAt, Rel: r}, nil
 		}
-		label := r.TagName
-		return &Target{Ref: r.TagName, Label: label, URL: r.HTMLURL, Date: r.PublishedAt, Rel: r}, nil
+		if len(rels) > 0 {
+			return nil, &GitHubError{Status: 404, Message: "None of this repo's recent releases match this app's update rules."}
+		}
+		return nil, &GitHubError{Status: 404, Message: "This repo has no releases; track commits instead."}
 	case "tag":
 		tags, err := s.gh.Tags(ctx, full, ttl)
 		if err != nil {
 			return nil, err
 		}
-		if len(tags) == 0 {
-			return nil, &GitHubError{Status: 404, Message: "This repo has no tags; track commits instead."}
+		var ok []Tag
+		for _, tg := range tags {
+			if !t.skip(tg.Name) {
+				ok = append(ok, tg)
+			}
 		}
-		t := highestTag(tags)
-		return &Target{Ref: t.Name, Label: t.Name, URL: repo.HTMLURL + "/releases/tag/" + t.Name}, nil
+		if len(ok) == 0 {
+			return nil, &GitHubError{Status: 404, Message: "This repo has no tags (that match this app's update rules); track commits instead."}
+		}
+		tg := highestTag(ok, t.Prerelease)
+		return &Target{Ref: tg.Name, Label: tg.Name, URL: repo.HTMLURL + "/releases/tag/" + tg.Name}, nil
 	default:
+		branch := t.Branch
 		if branch == "" {
 			branch = repo.DefaultBranch
 		}
@@ -433,11 +483,11 @@ var preTag = regexp.MustCompile(`(?i)[-.](rc|beta|alpha|pre|dev)\.?\d*$`)
 func isPre(s string) bool { return preTag.MatchString(s) }
 
 // highestTag picks the newest-looking version among a repo's tags,
-// skipping pre-releases unless that's all there is.
-func highestTag(tags []Tag) Tag {
+// skipping pre-releases (unless wanted, or that's all there is).
+func highestTag(tags []Tag, pre bool) Tag {
 	best := -1
 	for i, t := range tags {
-		if isPre(t.Name) {
+		if isPre(t.Name) && !pre {
 			continue
 		}
 		if best < 0 || versionLess(tags[best].Name, t.Name) {

@@ -62,6 +62,22 @@ var migrations = []string{
 	CREATE TABLE http_cache (
 		url TEXT PRIMARY KEY, etag TEXT NOT NULL DEFAULT '', status INTEGER NOT NULL,
 		body BLOB NOT NULL, fetched_at TEXT NOT NULL);`,
+	// 0.3: users with roles and email invites, update controls, audit log.
+	`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin';
+	ALTER TABLE users ADD COLUMN invite_hash TEXT NOT NULL DEFAULT '';
+	ALTER TABLE users ADD COLUMN invite_expires TEXT NOT NULL DEFAULT '';
+	ALTER TABLE users ADD COLUMN invited_by TEXT NOT NULL DEFAULT '';
+	ALTER TABLE users ADD COLUMN reset_hash TEXT NOT NULL DEFAULT '';
+	ALTER TABLE users ADD COLUMN reset_expires TEXT NOT NULL DEFAULT '';
+	ALTER TABLE users ADD COLUMN last_login TEXT NOT NULL DEFAULT '';
+	ALTER TABLE apps ADD COLUMN skipped_ref TEXT NOT NULL DEFAULT '';
+	ALTER TABLE apps ADD COLUMN held INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE apps ADD COLUMN previous_ref TEXT NOT NULL DEFAULT '';
+	ALTER TABLE apps ADD COLUMN previous_label TEXT NOT NULL DEFAULT '';
+	ALTER TABLE apps ADD COLUMN auto_tried_ref TEXT NOT NULL DEFAULT '';
+	ALTER TABLE jobs ADD COLUMN started_by TEXT NOT NULL DEFAULT '';
+	CREATE TABLE events (
+		id INTEGER PRIMARY KEY, at TEXT NOT NULL, user_label TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '');`,
 }
 
 func openStore(path string) (*Store, error) {

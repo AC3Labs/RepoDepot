@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	_ "time/tzdata" // time zone names work even where the system has none
 
 	"repodepot/internal/server"
 )

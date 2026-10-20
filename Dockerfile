@@ -1,5 +1,5 @@
 # Built from the binaries scripts/build.sh puts in dist/ (docker build dist/).
-FROM alpine:3.20
+FROM alpine:3.24
 ARG VERSION=dev
 ARG REVISION=
 LABEL org.opencontainers.image.title="The Repo Depot" \

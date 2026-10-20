@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -31,6 +32,8 @@ type fakeGitHub struct {
 	srv      *httptest.Server
 	releases []string // newest first
 	hits     map[string]int
+	badSum   map[string]bool // versions whose published checksum is wrong
+	pre      map[string]bool // versions that are pre-releases
 }
 
 func tarball(t *testing.T, version string) []byte {
@@ -46,11 +49,18 @@ func tarball(t *testing.T, version string) []byte {
 }
 
 func newFakeGitHub(t *testing.T) *fakeGitHub {
-	f := &fakeGitHub{releases: []string{"v1.0.0"}, hits: map[string]int{}}
+	f := &fakeGitHub{releases: []string{"v1.0.0"}, hits: map[string]int{}, badSum: map[string]bool{}, pre: map[string]bool{}}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.hits[r.URL.Path]++
 		rels := append([]string(nil), f.releases...)
+		badSum, pre := map[string]bool{}, map[string]bool{}
+		for k, v := range f.badSum {
+			badSum[k] = v
+		}
+		for k, v := range f.pre {
+			pre[k] = v
+		}
 		f.mu.Unlock()
 		base := f.srv.URL
 		reply := func(v any) {
@@ -76,6 +86,7 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 			var out []any
 			for _, v := range rels {
 				out = append(out, map[string]any{"tag_name": v, "name": v, "html_url": "https://github.com/me/tool/releases/" + v, "published_at": "2026-10-01T00:00:00Z",
+					"prerelease": pre[v], "body_html": "<p>Notes for " + v + "</p><script>x()</script>",
 					"assets": []any{
 						map[string]any{"name": "tool-" + v + "-linux-amd64.tar.gz", "size": 100, "browser_download_url": base + "/dl/" + v + "/tool-linux-amd64.tar.gz"},
 						map[string]any{"name": "tool-" + v + "-windows-amd64.zip", "size": 100, "browser_download_url": base + "/dl/" + v + "/tool-windows-amd64.zip"},
@@ -101,6 +112,17 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 			w.Write([]byte(`<article class="markdown-body"><h1>Tool</h1><p>Does things.</p><script>bad()</script></article>`))
 		case r.URL.Path == "/raw/logo.png":
 			w.Write([]byte("\x89PNG\r\n\x1a\n" + strings.Repeat("\x00", 60)))
+		case strings.HasPrefix(r.URL.Path, "/repos/me/tool/compare/"):
+			reply(map[string]any{"commits": []any{
+				map[string]any{"sha": "1111111aaaa", "html_url": "https://github.com/me/tool/commit/1111111", "commit": map[string]any{"message": "Older change\n\nbody", "author": map[string]any{"name": "Ann"}}},
+				map[string]any{"sha": "2222222bbbb", "html_url": "https://github.com/me/tool/commit/2222222", "commit": map[string]any{"message": "Newer change", "author": map[string]any{"name": "Bob"}}}}})
+		case strings.HasSuffix(r.URL.Path, "/checksums.txt"):
+			v := strings.Split(r.URL.Path, "/")[2]
+			sum := sha256.Sum256(tarball(t, v))
+			if badSum[v] {
+				sum[0] ^= 0xff
+			}
+			fmt.Fprintf(w, "%x  tool-%s-linux-amd64.tar.gz\n%x  tool-%s-windows-amd64.zip\n", sum, v, sha256.Sum256(nil), v)
 		case strings.HasPrefix(r.URL.Path, "/dl/"):
 			v := strings.Split(r.URL.Path, "/")[2]
 			w.Write(tarball(t, v))
@@ -272,6 +294,9 @@ func TestEndToEndInstallUpdateAndUninstall(t *testing.T) {
 	if a.InstalledRef != "v1.0.0" || a.Options.AssetPattern != "tool-*-linux-amd64.tar.gz" {
 		t.Fatalf("after install: %+v", a)
 	}
+	if jobs, _ := s.store.Jobs(appID, 1); len(jobs) != 1 || !strings.Contains(jobs[0].Log, "Checksum matches") || jobs[0].StartedBy != "Andrew" {
+		t.Fatalf("install job didn't verify the checksum or record who started it: %+v", jobs)
+	}
 	toolPath := filepath.Join(appsDir, "apps", "tool", "app", "tool")
 	if b, _ := os.ReadFile(toolPath); !strings.Contains(string(b), "v1.0.0") {
 		t.Fatalf("installed file: %q", b)
@@ -334,6 +359,51 @@ func TestEndToEndInstallUpdateAndUninstall(t *testing.T) {
 		t.Fatal("still shows an update")
 	}
 
+	if a := app(); a.PreviousRef != "v1.0.0" {
+		t.Fatalf("previous version not remembered: %+v", a)
+	}
+
+	// Roll back: v1.0.0 goes back on, and v1.1.0 is skipped so it isn't
+	// offered (or auto-installed) again straight away.
+	var rb struct {
+		JobID   int64  `json:"job_id"`
+		Skipped string `json:"skipped"`
+	}
+	b.call("POST", fmt.Sprintf("/api/apps/%d/update", appID), map[string]string{"ref": "v1.0.0"}, &rb)
+	if rb.JobID == 0 || rb.Skipped != "v1.1.0" {
+		t.Fatalf("roll back: %+v", rb)
+	}
+	waitFor(t, "roll back", func() bool { a := app(); return a.Status == "installed" && a.InstalledRef == "v1.0.0" })
+	if b, _ := os.ReadFile(toolPath); !strings.Contains(string(b), "v1.0.0") {
+		t.Fatalf("rolled-back file: %q", b)
+	}
+	if a := app(); a.UpdateAvailable() || a.SkippedRef != "v1.1.0" || a.PreviousRef != "v1.1.0" || s.updateCount() != 0 {
+		t.Fatalf("after roll back: %+v", a)
+	}
+	b.call("POST", fmt.Sprintf("/api/apps/%d/skip", appID), map[string]bool{"undo": true}, nil)
+	if !app().UpdateAvailable() {
+		t.Fatal("un-skipping didn't offer the update again")
+	}
+
+	// A download that doesn't match its published checksum is never
+	// installed; the app stays on the version it had.
+	gh.mu.Lock()
+	gh.releases = []string{"v1.2.0", "v1.1.0", "v1.0.0"}
+	gh.badSum["v1.2.0"] = true
+	gh.mu.Unlock()
+	b.call("POST", "/api/check", nil, &chk)
+	b.call("POST", fmt.Sprintf("/api/apps/%d/update", appID), map[string]any{}, nil)
+	waitFor(t, "failed update", func() bool { a := app(); return a.Status != "updating" && a.ActiveJob == 0 })
+	if jobs, _ := s.store.Jobs(appID, 1); jobs[0].Status != "error" || !strings.Contains(jobs[0].Error, "checksum") {
+		t.Fatalf("tampered download wasn't refused: %+v", jobs[0])
+	}
+	if a := app(); a.InstalledRef != "v1.0.0" || a.Status != "installed" {
+		t.Fatalf("after a refused download: %+v", a)
+	}
+	if b, _ := os.ReadFile(toolPath); !strings.Contains(string(b), "v1.0.0") {
+		t.Fatalf("file changed by a refused download: %q", b)
+	}
+
 	// Pages render.
 	for _, p := range []string{"/", "/discover?q=tool", "/repo/me/tool", fmt.Sprintf("/apps/%d", appID), "/machines", "/activity", "/settings"} {
 		if body := b.page(p); !strings.Contains(body, "The Repo Depot") {
@@ -350,7 +420,7 @@ func TestEndToEndInstallUpdateAndUninstall(t *testing.T) {
 		t.Fatal("folder still there")
 	}
 	jobs, _ := s.store.Jobs(0, 10)
-	if len(jobs) != 3 || jobs[0].Action != "uninstall" || jobs[0].Status != "done" {
+	if len(jobs) != 5 || jobs[0].Action != "uninstall" || jobs[0].Status != "done" {
 		t.Fatalf("jobs: %+v", jobs)
 	}
 

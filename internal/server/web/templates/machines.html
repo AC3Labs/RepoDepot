@@ -1,15 +1,15 @@
 {{define "content"}}{{$d := .Data}}
-<div x-data="machinesPage({{json (index $d "Machines")}}, {{index $d "Port"}}, {{json (index $d "Welcome")}})" x-init="start()">
+<div x-data="machinesPage({{json (index $d "Machines")}}, {{index $d "Port"}}, {{json (index $d "Welcome")}}, {{json .Version}})" x-init="start()">
   <div class="page-head">
     <div class="grow"><h1>Machines</h1><div class="sub">The computers software gets installed on. Each runs a small agent.</div></div>
-    <button class="btn primary" @click="openAdd()">{{template "i-plus"}}Add machine</button>
+    <button class="btn primary need-admin" @click="openAdd()">{{template "i-plus"}}Add machine</button>
   </div>
 
   <template x-if="welcome && list.length===0">
     <div class="notice accent" style="margin-bottom:18px">{{template "i-info"}}<div><b>Welcome!</b> Add the first machine The Repo Depot installs onto. It can be this server itself.</div></div>
   </template>
 
-  <template x-if="list.length===0"><div class="card empty"><h3>No machines yet</h3><p>Add one, run the one-line command it gives you on that machine, and it's ready.</p><div class="mt"><button class="btn primary lg" @click="openAdd()">{{template "i-plus"}}Add machine</button></div></div></template>
+  <template x-if="list.length===0"><div class="card empty"><h3>No machines yet</h3><p>Add one, run the one-line command it gives you on that machine, and it's ready.</p><div class="mt"><button class="btn primary lg need-admin" @click="openAdd()">{{template "i-plus"}}Add machine</button></div></div></template>
 
   <div class="apps">
     <template x-for="m in list" :key="m.id">
@@ -24,13 +24,14 @@
           <span class="chip" x-show="m.os" x-text="osName(m.os)+' · '+m.arch"></span>
           <span class="chip" x-show="m.docker">{{template "i-docker"}}Docker</span>
           <span class="chip" x-show="m.agent_version" x-text="'Agent '+m.agent_version"></span>
+          <span class="chip" x-show="agentOld(m)" style="color:var(--warn)" title="Re-run the install command on that machine to update it (Edit → New token shows it)">Agent update available</span>
           <span class="chip" x-show="m.os && !m.admin" style="color:var(--warn)">Not admin</span>
         </div>
         <div class="tiny muted" x-text="(apps[m.id]!==undefined ? apps[m.id]+' app'+(apps[m.id]===1?'':'s')+' · ' : '') + (m.last_seen ? 'last seen '+(seen[m.id]||'') : 'never seen')"></div>
         <div class="foot">
           <span class="spacer"></span>
           <button class="btn sm" @click="check(m)">{{template "i-refresh"}}Check</button>
-          <button class="btn sm" @click="openEdit(m)">Edit</button>
+          <button class="btn sm need-admin" @click="openEdit(m)">Edit</button>
         </div>
       </div>
     </template>

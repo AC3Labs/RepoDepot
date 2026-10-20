@@ -1,0 +1,7 @@
+{{define "content"}}{{$d := .Data}}
+<div class="card pad col" style="gap:14px">
+  <h2>{{index $d "Title"}}</h2>
+  <p class="muted">{{index $d "Text"}}</p>
+  <a class="btn" href="/login">Go to sign in</a>
+</div>
+{{end}}

@@ -423,3 +423,17 @@ kbd {
   .hide-sm { display: none !important; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* ---- roles: hide what this account can't do (the server checks too) ---- */
+[data-role="viewer"] .need-member, [data-role="viewer"] .need-admin, [data-role="member"] .need-admin { display: none !important; }
+.center { text-align: center; }
+.release-notes { border-top: 1px solid var(--border); padding: 16px 18px; }
+.release-notes:first-child { border-top: 0; }
+.release-notes h4 { margin: 0 0 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.commit-line { display: flex; gap: 10px; padding: 8px 18px; border-top: 1px solid var(--border); align-items: baseline; }
+.commit-line:first-child { border-top: 0; }
+.version-row { display: flex; gap: 10px; align-items: center; padding: 9px 14px; border-top: 1px solid var(--border); }
+.version-row:first-child { border-top: 0; }
+.version-list { max-height: 360px; overflow-y: auto; }
+.suggest button.on { border-color: var(--accent-line); color: var(--accent); background: var(--accent-soft); }
+.suggest button svg { width: 13px; height: 13px; vertical-align: -2px; margin-right: 4px; }

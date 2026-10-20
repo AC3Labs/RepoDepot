@@ -6,17 +6,17 @@
       <div class="sub">Everything you've installed from GitHub, on every machine.</div>
     </div>
     <div class="btn-group">
-      <button class="btn" @click="checkNow()" :disabled="checking">
+      <button class="btn need-member" @click="checkNow()" :disabled="checking">
         <span class="spinner" x-show="checking" x-cloak></span><span x-show="!checking">{{template "i-refresh"}}</span>
         <span x-text="checking ? 'Checking…' : 'Check for updates'"></span>
       </button>
-      <a class="btn primary" href="/discover">{{template "i-plus"}}Add software</a>
+      <a class="btn primary need-member" href="/discover">{{template "i-plus"}}Add software</a>
     </div>
   </div>
 
   <div class="stats">
     <div class="card stat"><div class="ico">{{template "i-box"}}</div><div><div class="v" x-text="apps.length"></div><div class="l">Installed</div></div></div>
-    <div class="card stat"><div class="ico warn">{{template "i-up"}}</div><div><div class="v" x-text="updatable.length"></div><div class="l">Updates available</div></div></div>
+    <div class="card stat"><div class="ico warn">{{template "i-up"}}</div><div><div class="v" x-text="apps.filter(a => a.update_available).length"></div><div class="l">Updates available</div></div></div>
     <div class="card stat"><div class="ico ok">{{template "i-server"}}</div><div><div class="v"><span x-text="machines.filter(m=>m.status==='online').length"></span><span class="muted" style="font-size:1rem" x-text="' / '+machines.length"></span></div><div class="l">Machines online</div></div></div>
     <div class="card stat"><div class="ico info">{{template "i-clock"}}</div><div><div class="v" style="font-size:1.05rem;padding:4px 0" x-text="lastCheckLabel()"></div><div class="l">Last update check</div></div></div>
   </div>
@@ -45,9 +45,9 @@
           <button :class="filter==='problems'&&'on'" @click="filter='problems'">Problems</button>
         </div>
         <div class="spacer"></div>
-        <label class="row small dim" style="gap:7px;cursor:pointer"><input type="checkbox" class="check" :checked="allSelected()" @change="selectAll($event.target.checked)">Select all</label>
-        <button class="btn sm" :disabled="selectedUpdatable().length===0" @click="updateIds(selectedUpdatable())">{{template "i-up"}}Update selected <span x-show="selectedUpdatable().length" x-text="'('+selectedUpdatable().length+')'"></span></button>
-        <button class="btn sm primary" :disabled="updatable.length===0" @click="updateAll()">{{template "i-up"}}Update all <span x-show="updatable.length" x-text="'('+updatable.length+')'"></span></button>
+        <label class="row small dim need-member" style="gap:7px;cursor:pointer"><input type="checkbox" class="check" :checked="allSelected()" @change="selectAll($event.target.checked)">Select all</label>
+        <button class="btn sm need-member" :disabled="selectedUpdatable().length===0" @click="updateIds(selectedUpdatable())">{{template "i-up"}}Update selected <span x-show="selectedUpdatable().length" x-text="'('+selectedUpdatable().length+')'"></span></button>
+        <button class="btn sm primary need-member" :disabled="updatable.length===0" @click="updateAll()">{{template "i-up"}}Update all <span x-show="updatable.length" x-text="'('+updatable.length+')'"></span></button>
         <div class="seg">
           <button :class="view==='grid'&&'on'" @click="setView('grid')" title="Cards" aria-label="Cards">{{template "i-grid"}}</button>
           <button :class="view==='list'&&'on'" @click="setView('list')" title="List" aria-label="List">{{template "i-list"}}</button>
@@ -60,7 +60,7 @@
         <template x-for="a in shown" :key="a.id">
           <div class="card app-card" :class="selected[a.id] && 'selected'">
             <div class="update-ribbon" x-show="a.update_available && !busy(a)">Update</div>
-            <input type="checkbox" class="check sel" x-model="selected[a.id]" :aria-label="'Select '+a.name">
+            <input type="checkbox" class="check sel need-member" x-model="selected[a.id]" :aria-label="'Select '+a.name">
             <div class="row" style="gap:13px;padding-right:26px">
               <img class="logo m" :src="a.logo_url" alt="" loading="lazy" width="52" height="52" @error="$el.src='/static/icon.webp'">
               <div class="grow">
@@ -83,8 +83,8 @@
             <div class="foot">
               <span class="tiny muted truncate grow" x-text="a.check_error ? 'Check failed: '+a.check_error : 'Checked '+a.checked_ago"></span>
               <a class="btn sm" x-show="a.options.open_url" :href="a.options.open_url" target="_blank" rel="noopener">{{template "i-external"}}Open</a>
-              <button class="btn sm primary" x-show="a.update_available && !busy(a) && a.method!=='track'" @click="updateOne(a)">{{template "i-up"}}Update</button>
-              <button class="btn sm" x-show="a.update_available && a.method==='track'" @click="markUpdated(a)" title="You updated it yourself">{{template "i-check"}}Mark updated</button>
+              <button class="btn sm primary need-member" x-show="a.update_available && !busy(a) && a.method!=='track'" @click="updateOne(a)">{{template "i-up"}}Update</button>
+              <button class="btn sm need-member" x-show="a.update_available && a.method==='track'" @click="markUpdated(a)" title="You updated it yourself">{{template "i-check"}}Mark updated</button>
               <a class="btn sm" :href="'/apps/'+a.id">Details</a>
             </div>
           </div>
@@ -97,13 +97,13 @@
           <tbody>
             <template x-for="a in shown" :key="a.id">
               <tr>
-                <td><input type="checkbox" class="check" x-model="selected[a.id]"></td>
+                <td><input type="checkbox" class="check need-member" x-model="selected[a.id]"></td>
                 <td><div class="row"><img class="logo s" :src="a.logo_url" alt="" loading="lazy" width="36" height="36" @error="$el.src='/static/icon.webp'"><div><a :href="'/apps/'+a.id" style="color:var(--text);font-weight:600" x-text="a.name"></a><div class="tiny muted" x-text="a.repo"></div></div></div></td>
                 <td class="nowrap" x-text="a.machine_name"></td>
                 <td class="hide-sm"><span class="mono tiny muted" x-text="a.location||a.dir"></span></td>
                 <td class="small"><span x-text="a.installed_label||'—'"></span><template x-if="a.update_available"><span> <span style="color:var(--accent)">→</span> <span x-text="a.latest_label"></span></span></template></td>
                 <td x-html="statusPill(a)"></td>
-                <td class="nowrap" style="text-align:right"><a class="btn sm" x-show="a.options.open_url" :href="a.options.open_url" target="_blank" rel="noopener">Open</a> <button class="btn sm primary" x-show="a.update_available && !busy(a) && a.method!=='track'" @click="updateOne(a)">Update</button><button class="btn sm" x-show="a.update_available && a.method==='track'" @click="markUpdated(a)">Mark updated</button> <a class="btn sm" :href="'/apps/'+a.id">Details</a></td>
+                <td class="nowrap" style="text-align:right"><a class="btn sm" x-show="a.options.open_url" :href="a.options.open_url" target="_blank" rel="noopener">Open</a> <button class="btn sm primary need-member" x-show="a.update_available && !busy(a) && a.method!=='track'" @click="updateOne(a)">Update</button><button class="btn sm need-member" x-show="a.update_available && a.method==='track'" @click="markUpdated(a)">Mark updated</button> <a class="btn sm" :href="'/apps/'+a.id">Details</a></td>
               </tr>
             </template>
           </tbody>

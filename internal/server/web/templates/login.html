@@ -6,5 +6,6 @@
   <div class="field"><label for="email">Email</label><input class="input" id="email" name="email" type="email" value="{{index $d "Email"}}" required autofocus autocomplete="username"></div>
   <div class="field"><label for="password">Password</label><input class="input" id="password" name="password" type="password" required autocomplete="current-password"></div>
   <button class="btn primary lg">Sign in</button>
+  {{if index $d "Reset"}}<a class="small center" href="/forgot">Forgot your password?</a>{{end}}
 </form>
 {{end}}

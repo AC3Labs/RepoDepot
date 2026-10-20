@@ -27,11 +27,6 @@ var logoName = regexp.MustCompile(`(?i)^(logo|icon|app[-_]?icon|favicon|brand|ma
 
 var logoMu sync.Map // repo -> *sync.Mutex, so one repo's logo is found once
 
-type logoFinder struct {
-	s   *Server
-	dir string
-}
-
 func (s *Server) logoDir() string { return filepath.Join(s.cfg.DataDir, "logos") }
 
 // LogoURL is where the browser gets a repo's logo: our cached copy when

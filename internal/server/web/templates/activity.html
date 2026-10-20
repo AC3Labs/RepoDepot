@@ -1,10 +1,21 @@
 {{define "content"}}{{$d := .Data}}
-<div x-data="activityPage({{json (index $d "Jobs")}})" x-init="start()">
+<div x-data="activityPage({{json (index $d "Jobs")}}, {{json (index $d "Events")}})" x-init="start()">
   <div class="page-head">
-    <div class="grow"><h1>Activity</h1><div class="sub">Every install, update and uninstall, with its full log.</div></div>
-    <div class="seg"><button :class="filter===''&&'on'" @click="filter=''">All</button><button :class="filter==='running'&&'on'" @click="filter='running'">Running</button><button :class="filter==='error'&&'on'" @click="filter='error'">Failed</button></div>
+    <div class="grow"><h1>Activity</h1><div class="sub">Every install, update and uninstall with its full log, and who changed what.</div></div>
+    <div class="seg" x-show="view==='jobs'"><button :class="filter===''&&'on'" @click="filter=''">All</button><button :class="filter==='running'&&'on'" @click="filter='running'">Running</button><button :class="filter==='error'&&'on'" @click="filter='error'">Failed</button></div>
   </div>
-  <div class="card">
+  <div class="tabs">
+    <button :class="view==='jobs'&&'on'" @click="view='jobs'">Jobs</button>
+    <button :class="view==='audit'&&'on'" @click="view='audit'">Audit log</button>
+  </div>
+  <div class="card" x-show="view==='audit'" x-cloak style="overflow-x:auto">
+    <template x-if="events.length===0"><div class="empty">Nothing here yet. Changes to users, machines and settings show up here.</div></template>
+    <table class="table" x-show="events.length">
+      <thead><tr><th>When</th><th>Who</th><th>What</th><th class="hide-sm">Details</th></tr></thead>
+      <tbody><template x-for="e in events" :key="e.id"><tr><td class="nowrap small dim" x-text="fmtDate(e.at)"></td><td class="nowrap small" x-text="e.user"></td><td class="small" x-text="e.action"></td><td class="small dim hide-sm" x-text="e.detail"></td></tr></template></tbody>
+    </table>
+  </div>
+  <div class="card" x-show="view==='jobs'">
     <template x-if="shown.length===0"><div class="empty">Nothing here yet.</div></template>
     <template x-for="j in shown" :key="j.id">
       <div class="job">
@@ -14,6 +25,7 @@
           <a :href="j.app_id ? '/apps/'+j.app_id : '#'" @click.stop x-text="j.app_label" class="truncate"></a>
           <span class="muted small nowrap hide-sm" x-text="'on '+j.machine_label"></span>
           <span class="dim small truncate hide-sm" x-text="j.ref"></span>
+          <span class="tiny muted nowrap hide-sm" x-show="j.started_by" x-text="'by '+j.started_by"></span>
           <span class="spacer"></span><span class="tiny muted nowrap" x-text="fmtDate(j.created_at)"></span>
         </div>
         <div x-show="open[j.id]" style="padding:0 18px 16px" x-cloak>

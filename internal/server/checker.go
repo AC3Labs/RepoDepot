@@ -36,7 +36,7 @@ func (s *Server) scheduler(ctx context.Context) {
 		s.checkUpdates(ctx)
 	}
 	lastMachines := time.Now()
-	lastClean := time.Time{}
+	lastClean, lastBackup := time.Time{}, time.Time{}
 	t := time.NewTicker(20 * time.Second)
 	defer t.Stop()
 	for {
@@ -61,6 +61,10 @@ func (s *Server) scheduler(ctx context.Context) {
 			s.store.db.Exec(`DELETE FROM jobs WHERE status != 'running' AND created_at < ?`, cutoff)
 			s.store.db.Exec(`DELETE FROM http_cache WHERE fetched_at < ?`, time.Now().UTC().Add(-30*24*time.Hour).Format(dbTime))
 			s.store.db.Exec(`DELETE FROM sessions WHERE expires_at < ?`, nowDB())
+		}
+		if time.Since(lastBackup) > time.Hour {
+			lastBackup = time.Now()
+			s.dailyBackup()
 		}
 	}
 }
@@ -99,9 +103,10 @@ func (s *Server) checkUpdates(ctx context.Context) int {
 		if a.InstalledRef == "" {
 			continue
 		}
-		k := a.Repo + "|" + a.Track + "|" + a.Branch
+		k := a.Repo + "|" + s.trackFor(a).key()
 		groups[k] = append(groups[k], a)
 	}
+	inWindow := s.autoUpdateWindowOpen(time.Now())
 	sem := make(chan struct{}, 6)
 	var wg sync.WaitGroup
 	var found atomic.Int32
@@ -117,7 +122,7 @@ func (s *Server) checkUpdates(ctx context.Context) int {
 			repo, err := s.gh.Repo(c, first.Repo, s.gh.minutes("cache_repo_minutes"))
 			var t *Target
 			if err == nil {
-				t, err = s.latestTarget(c, repo, first.Track, first.Branch, 0)
+				t, err = s.latestTarget(c, repo, s.trackFor(first), 0)
 			}
 			for _, a := range list {
 				if err != nil {
@@ -131,9 +136,18 @@ func (s *Server) checkUpdates(ctx context.Context) int {
 					continue
 				}
 				found.Add(1)
-				if a.AutoUpdate && a.Method != MethodTrack && a.ActiveJob == 0 && a.MachineStatus != "offline" {
-					if _, err := s.startJob(context.Background(), a, spec.ActionUpdate, t.Ref, false); err != nil {
+				if a.AutoUpdate && a.Method != MethodTrack {
+					// Each version is tried once automatically: a failed
+					// update isn't retried (and re-reported) every check.
+					if a.AutoTriedRef == t.Ref || a.ActiveJob != 0 || a.MachineStatus == "offline" || !inWindow {
+						continue
+					}
+					s.store.db.Exec(`UPDATE apps SET auto_tried_ref = ? WHERE id = ?`, t.Ref, a.ID)
+					if _, err := s.startJob(context.Background(), a, spec.ActionUpdate, t.Ref, false, "Automatic"); err != nil {
 						log.Printf("auto-update of %s on %s: %v", a.Repo, a.MachineName, err)
+						if s.settings.Bool("notify_failures") {
+							s.notify("Auto-update failed: "+a.Name()+" on "+a.MachineName, err.Error(), "x", fmt.Sprintf("/apps/%d", a.ID), nil)
+						}
 					}
 					continue
 				}
@@ -146,6 +160,21 @@ func (s *Server) checkUpdates(ctx context.Context) int {
 	}
 	wg.Wait()
 	return int(found.Load())
+}
+
+// autoUpdateWindowOpen: automatic updates may run now (Settings → Updates).
+func (s *Server) autoUpdateWindowOpen(now time.Time) bool {
+	if !s.settings.Bool("auto_update_window") {
+		return true
+	}
+	from, to, h := s.settings.Int("auto_update_start"), s.settings.Int("auto_update_end"), now.In(s.settings.Location()).Hour()
+	switch {
+	case from == to:
+		return h == from
+	case from < to:
+		return h >= from && h < to
+	}
+	return h >= from || h < to // passes midnight
 }
 
 // ---- ntfy ----
@@ -168,17 +197,98 @@ func (s *Server) publicURL() string {
 	return "http://localhost" + s.cfg.Listen
 }
 
-// notify sends an ntfy message when notifications are on. path is a page
-// in this app the notification opens.
+// notify sends a notification to every channel that's turned on: ntfy,
+// email and a webhook. path is a page in this app the notification opens.
 func (s *Server) notify(title, message, tags, path string, actions []ntfyAction) {
-	if !s.settings.Bool("ntfy_enabled") || s.settings.Get("ntfy_topic") == "" {
-		return
+	if s.settings.Bool("ntfy_enabled") && s.settings.Get("ntfy_topic") != "" {
+		go func() {
+			if err := s.sendNtfy(title, message, tags, path, actions); err != nil {
+				log.Printf("ntfy: %v", err)
+			}
+		}()
 	}
-	go func() {
-		if err := s.sendNtfy(title, message, tags, path, actions); err != nil {
-			log.Printf("ntfy: %v", err)
+	if s.settings.Bool("email_notify") && s.mailConfigured() {
+		go func() {
+			if err := s.emailNotify(title, message, path, actions); err != nil {
+				log.Printf("notification email: %v", err)
+			}
+		}()
+	}
+	if s.settings.Get("webhook_url") != "" {
+		go func() {
+			if err := s.sendWebhook(title, message, tags, path); err != nil {
+				log.Printf("webhook: %v", err)
+			}
+		}()
+	}
+}
+
+// notifyRecipients: Settings → Notifications "Email them to", else every
+// admin who has accepted their invite.
+func (s *Server) notifyRecipients() string {
+	if to := strings.TrimSpace(s.settings.Get("email_to")); to != "" {
+		return to
+	}
+	var list []string
+	rows, err := s.store.db.Query(`SELECT email FROM users WHERE role = 'admin' AND invite_hash = ''`)
+	if err != nil {
+		return ""
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var e string
+		rows.Scan(&e)
+		list = append(list, e)
+	}
+	return strings.Join(list, ", ")
+}
+
+func (s *Server) emailNotify(title, message, path string, actions []ntfyAction) error {
+	to := s.notifyRecipients()
+	if to == "" {
+		return nil
+	}
+	link := s.publicURL() + path
+	text := message + "\n\nOpen: " + link + "\n"
+	paras := []string{message}
+	for _, a := range actions {
+		if a.Action == "view" && a.Label == "What's new" {
+			text += "What's new: " + a.URL + "\n"
+			paras = append(paras, "What's new: "+a.URL)
 		}
-	}()
+	}
+	return s.sendMail(to, title, text, s.mailHTML(title, paras, "Open "+s.settings.Get("site_name"), link))
+}
+
+// sendWebhook posts the notification as JSON, shaped for Discord or Slack
+// when chosen.
+func (s *Server) sendWebhook(title, message, tags, path string) error {
+	link := s.publicURL() + path
+	var payload any
+	switch s.settings.Get("webhook_format") {
+	case "discord":
+		payload = map[string]any{"username": s.settings.Get("site_name"), "embeds": []map[string]any{{"title": title, "description": message, "url": link, "color": 0xc99243}}}
+	case "slack":
+		payload = map[string]any{"text": "*" + title + "*\n" + message + "\n<" + link + "|Open>"}
+	default:
+		payload = map[string]any{"title": title, "message": message, "link": link, "event": tags, "app": s.settings.Get("site_name"), "time": time.Now().UTC().Format(time.RFC3339)}
+	}
+	raw, _ := json.Marshal(payload)
+	req, err := http.NewRequest(http.MethodPost, s.settings.Get("webhook_url"), bytes.NewReader(raw))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "TheRepoDepot/"+Version)
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("the webhook answered %s", resp.Status)
+	}
+	return nil
 }
 
 func (s *Server) sendNtfy(title, message, tags, path string, actions []ntfyAction) error {

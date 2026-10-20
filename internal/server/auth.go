@@ -15,6 +15,32 @@ type User struct {
 	ID    int64
 	Name  string
 	Email string
+	Role  string // admin, member or viewer
+}
+
+// Roles, from most to least allowed:
+//   - admin: everything, including Settings, users and machines
+//   - member: installs, updates, uninstalls and app settings
+//   - viewer: can look at everything but change nothing
+const (
+	RoleAdmin  = "admin"
+	RoleMember = "member"
+	RoleViewer = "viewer"
+)
+
+var roleRank = map[string]int{RoleViewer: 1, RoleMember: 2, RoleAdmin: 3}
+
+// Can reports whether the user has at least the given role.
+func (u *User) Can(role string) bool { return u != nil && roleRank[u.Role] >= roleRank[role] }
+
+func (u *User) IsAdmin() bool { return u.Can(RoleAdmin) }
+
+// Label names the user in the audit log and job history.
+func (u *User) Label() string {
+	if u == nil {
+		return ""
+	}
+	return u.Name
 }
 
 type ctxKey int
@@ -70,8 +96,8 @@ func (s *Server) loadSession(r *http.Request) *http.Request {
 	u := &User{}
 	se := &session{ID: c.Value}
 	var exp string
-	err = s.store.db.QueryRow(`SELECT u.id, u.name, u.email, s.csrf, s.expires_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = ?`, c.Value).
-		Scan(&u.ID, &u.Name, &u.Email, &se.CSRF, &exp)
+	err = s.store.db.QueryRow(`SELECT u.id, u.name, u.email, u.role, s.csrf, s.expires_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = ?`, c.Value).
+		Scan(&u.ID, &u.Name, &u.Email, &u.Role, &se.CSRF, &exp)
 	if err != nil || time.Now().After(parseDB(exp)) {
 		return r
 	}
@@ -110,6 +136,26 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// need wraps requireAuth with a minimum role. Viewers and members get a
+// clear message instead of a silent failure.
+func (s *Server) need(role string, next http.HandlerFunc) http.HandlerFunc {
+	return s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		if !userFrom(r).Can(role) {
+			msg := "Only admins can do that."
+			if role == RoleMember {
+				msg = "Your account can view but not change anything. Ask an admin for member access."
+			}
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				jsonError(w, http.StatusForbidden, msg)
+				return
+			}
+			http.Error(w, msg, http.StatusForbidden)
+			return
+		}
+		next(w, r)
+	})
+}
+
 // loginLimiter locks out an address after too many wrong passwords.
 type loginLimiter struct {
 	mu   sync.Mutex
@@ -144,10 +190,15 @@ func (l *loginLimiter) reset(ip string) {
 func (s *Server) checkLogin(email, password string) (int64, bool) {
 	var id int64
 	var hash string
-	err := s.store.db.QueryRow(`SELECT id, password FROM users WHERE email = ?`, strings.TrimSpace(email)).Scan(&id, &hash)
-	if err != nil {
+	var pending string
+	err := s.store.db.QueryRow(`SELECT id, password, invite_hash FROM users WHERE email = ?`, strings.TrimSpace(email)).Scan(&id, &hash, &pending)
+	if err != nil || pending != "" { // an invited user signs in once they've accepted
 		bcrypt.CompareHashAndPassword([]byte("$2a$12$C6UzMDM.H6dfI/f/IKcEeO7ZqE3xYqVYYuH8GJZVWJXYBy0eNpqSe"), []byte(password)) // same time either way
 		return 0, false
 	}
-	return id, bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
+	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil {
+		return 0, false
+	}
+	s.store.db.Exec(`UPDATE users SET last_login = ? WHERE id = ?`, nowDB(), id)
+	return id, true
 }

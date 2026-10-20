@@ -224,3 +224,18 @@ func TestJobsAPIWithTokenAndOneJobPerApp(t *testing.T) {
 	}
 	_ = time.Second
 }
+
+func TestVerifySHA256(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "f")
+	os.WriteFile(p, []byte("hello"), 0o644)
+	good := "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+	if err := verifySHA256(p, good); err != nil {
+		t.Fatalf("good sum refused: %v", err)
+	}
+	if err := verifySHA256(p, strings.ToUpper(good)); err != nil {
+		t.Fatalf("upper-case sum refused: %v", err)
+	}
+	if err := verifySHA256(p, strings.Repeat("0", 64)); err == nil || !strings.Contains(err.Error(), "checksum") {
+		t.Fatalf("bad sum accepted: %v", err)
+	}
+}

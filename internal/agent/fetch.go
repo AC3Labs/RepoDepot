@@ -6,6 +6,8 @@ import (
 	"compress/bzip2"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -68,6 +70,25 @@ func download(ctx context.Context, rawURL, token, path string, l *jobLog) error 
 		return fmt.Errorf("download failed: %w", err)
 	}
 	l.Printf("  %s in %.1fs", humanBytes(pw.done), time.Since(pw.start).Seconds())
+	return nil
+}
+
+// verifySHA256 checks a downloaded file against the checksum GitHub or the
+// release published for it, so a damaged or swapped file is never installed.
+func verifySHA256(path, want string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+	got := hex.EncodeToString(h.Sum(nil))
+	if !strings.EqualFold(got, strings.TrimSpace(want)) {
+		return fmt.Errorf("the download doesn't match its published checksum (expected SHA-256 %s, got %s); nothing was installed", want, got)
+	}
 	return nil
 }
 

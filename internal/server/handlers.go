@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -72,7 +73,7 @@ func (s *Server) showLogin(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
-	s.render(w, r, 200, "login", "Sign in", "", map[string]string{"Next": r.URL.Query().Get("next")})
+	s.render(w, r, 200, "login", "Sign in", "", map[string]any{"Next": r.URL.Query().Get("next"), "Reset": s.resetEnabled()})
 }
 
 func safeNext(n string) string {
@@ -86,13 +87,13 @@ func (s *Server) doLogin(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	email, next := r.FormValue("email"), safeNext(r.FormValue("next"))
 	if s.limiter.blocked(ip, s.settings.Int("login_attempts")) {
-		s.render(w, r, 429, "login", "Sign in", "", map[string]string{"Error": "Too many wrong passwords. Try again in 15 minutes.", "Email": email, "Next": next})
+		s.render(w, r, 429, "login", "Sign in", "", map[string]any{"Error": "Too many wrong passwords. Try again in 15 minutes.", "Email": email, "Next": next, "Reset": s.resetEnabled()})
 		return
 	}
 	id, ok := s.checkLogin(email, r.FormValue("password"))
 	if !ok {
 		s.limiter.failed(ip)
-		s.render(w, r, 422, "login", "Sign in", "", map[string]string{"Error": "That email and password don't match.", "Email": email, "Next": next})
+		s.render(w, r, 422, "login", "Sign in", "", map[string]any{"Error": "That email and password don't match.", "Email": email, "Next": next, "Reset": s.resetEnabled()})
 		return
 	}
 	s.limiter.reset(ip)
@@ -184,6 +185,9 @@ func (s *Server) pageApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jobs, _ := s.store.Jobs(id, 30)
+	if jobs == nil {
+		jobs = []Job{} // null would show a blank job
+	}
 	s.render(w, r, 200, "app", a.Name(), "depot", map[string]any{"App": s.viewApp(a), "Jobs": jobs})
 }
 
@@ -199,7 +203,7 @@ func (s *Server) pageActivity(w http.ResponseWriter, r *http.Request) {
 	if jobs == nil {
 		jobs = []Job{}
 	}
-	s.render(w, r, 200, "activity", "Activity", "activity", map[string]any{"Jobs": jobs})
+	s.render(w, r, 200, "activity", "Activity", "activity", map[string]any{"Jobs": jobs, "Events": s.events(200)})
 }
 
 type settingView struct {
@@ -226,9 +230,15 @@ func (s *Server) pageSettings(w http.ResponseWriter, r *http.Request) {
 		secs = append(secs, section{sc[0], sc[1], bySection[sc[0]]})
 	}
 	left, limit, reset := s.gh.Rate()
+	u := userFrom(r)
+	tab := r.URL.Query().Get("tab")
+	if !u.IsAdmin() {
+		secs, tab = nil, "account" // others only change their own account
+	}
 	s.render(w, r, 200, "settings", "Settings", "settings", map[string]any{
-		"Sections": secs, "Tab": r.URL.Query().Get("tab"), "RateLeft": left, "RateLimit": limit,
-		"RateReset": reset.Local().Format("15:04"), "Base": s.publicURL(),
+		"Sections": secs, "Tab": tab, "RateLeft": left, "RateLimit": limit,
+		"RateReset": reset.Local().Format("15:04"), "Base": s.publicURL(), "Admin": u.IsAdmin(),
+		"Mail": s.mailConfigured(), "Backups": s.backupList(),
 	})
 }
 
@@ -262,26 +272,8 @@ type searchItem struct {
 func (s *Server) apiSearch(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	installed := map[string]int{}
-	rows, _ := s.store.db.Query(`SELECT lower(repo), count(*) FROM apps GROUP BY lower(repo)`)
-	if rows != nil {
-		for rows.Next() {
-			var k string
-			var n int
-			rows.Scan(&k, &n)
-			installed[k] = n
-		}
-		rows.Close()
-	}
-	conv := func(rp Repo) searchItem {
-		topics := rp.Topics
-		if len(topics) > 4 {
-			topics = topics[:4]
-		}
-		return searchItem{FullName: rp.FullName, Owner: rp.Owner.Login, Name: rp.Name, Avatar: rp.Owner.AvatarURL + "&s=96",
-			Description: rp.Description, Stars: rp.Stars, StarsLabel: humanNum(rp.Stars), Language: rp.Language,
-			Topics: topics, Updated: ago(rp.PushedAt), Archived: rp.Archived, Installed: installed[strings.ToLower(rp.FullName)]}
-	}
+	installed := s.installedCounts()
+	conv := func(rp Repo) searchItem { return toSearchItem(rp, installed) }
 	// A pasted link or owner/name goes straight to that repo.
 	if m := repoInput.FindStringSubmatch(q); m != nil && (strings.Contains(q, "github.com") || strings.Count(q, "/") == 1 && !strings.Contains(q, " ")) {
 		if rp, err := s.gh.Repo(r.Context(), m[1]+"/"+m[2], s.gh.minutes("cache_repo_minutes")); err == nil {
@@ -524,7 +516,7 @@ func (s *Server) apiInstall(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		app, _ := s.store.App(id)
-		jobID, err := s.startJob(r.Context(), app, spec.ActionInstall, req.Version, false)
+		jobID, err := s.startJob(r.Context(), app, spec.ActionInstall, req.Version, false, userFrom(r).Label())
 		if err != nil {
 			s.store.db.Exec(`DELETE FROM apps WHERE id = ?`, id)
 			res.Error = err.Error()
@@ -597,6 +589,7 @@ func (s *Server) apiMarkUpdated(w http.ResponseWriter, r *http.Request) {
 	}
 	s.store.db.Exec(`UPDATE apps SET installed_ref = ?, installed_label = ?, installed_at = ?, notified_ref = '', updated_at = ? WHERE id = ?`,
 		ref, label, nowDB(), nowDB(), a.ID)
+	s.event(r, "Marked as updated", a.Repo+" on "+a.MachineName+" → "+label)
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
@@ -645,12 +638,20 @@ func (s *Server) apiUpdate(w http.ResponseWriter, r *http.Request) {
 		Ref string `json:"ref"`
 	}
 	decodeJSON(r, &body)
-	jobID, err := s.startJob(r.Context(), a, spec.ActionUpdate, body.Ref, false)
+	body.Ref = strings.TrimSpace(body.Ref)
+	jobID, err := s.startJob(r.Context(), a, spec.ActionUpdate, body.Ref, false, userFrom(r).Label())
 	if err != nil {
 		jsonError(w, 409, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]int64{"job_id": jobID})
+	skipped := ""
+	if body.Ref != "" && a.LatestRef != "" && body.Ref != a.LatestRef {
+		// Choosing an older version (a roll back) skips the newer one, so
+		// it isn't offered again or auto-installed straight away.
+		s.store.db.Exec(`UPDATE apps SET skipped_ref = ? WHERE id = ?`, a.LatestRef, a.ID)
+		skipped = a.LatestLabel
+	}
+	writeJSON(w, 200, map[string]any{"job_id": jobID, "skipped": skipped})
 }
 
 func (s *Server) apiReinstall(w http.ResponseWriter, r *http.Request) {
@@ -663,7 +664,7 @@ func (s *Server) apiReinstall(w http.ResponseWriter, r *http.Request) {
 	if ref == "" {
 		action = spec.ActionInstall
 	}
-	jobID, err := s.startJob(r.Context(), a, action, ref, false)
+	jobID, err := s.startJob(r.Context(), a, action, ref, false, userFrom(r).Label())
 	if err != nil {
 		jsonError(w, 409, err.Error())
 		return
@@ -696,7 +697,10 @@ func (s *Server) apiUpdateMany(w http.ResponseWriter, r *http.Request) {
 			}
 			continue
 		}
-		if _, err := s.startJob(r.Context(), a, spec.ActionUpdate, "", false); err != nil {
+		if !a.UpdateAvailable() {
+			continue // held, skipped, or already current
+		}
+		if _, err := s.startJob(r.Context(), a, spec.ActionUpdate, "", false, userFrom(r).Label()); err != nil {
 			failed = append(failed, a.Name()+" on "+a.MachineName+": "+err.Error())
 			continue
 		}
@@ -718,7 +722,7 @@ func (s *Server) apiUninstall(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 409, "The Repo Depot didn't install this, so it can't uninstall it. Unregister it instead.")
 		return
 	}
-	jobID, err := s.startJob(r.Context(), a, spec.ActionUninstall, "", body.RemoveData)
+	jobID, err := s.startJob(r.Context(), a, spec.ActionUninstall, "", body.RemoveData, userFrom(r).Label())
 	if err != nil {
 		jsonError(w, 409, err.Error())
 		return
@@ -736,6 +740,7 @@ func (s *Server) apiUnregister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.store.db.Exec(`DELETE FROM apps WHERE id = ?`, a.ID)
+	s.event(r, "Unregistered an app", a.Repo+" on "+a.MachineName)
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
@@ -752,6 +757,7 @@ func (s *Server) apiAppSettings(w http.ResponseWriter, r *http.Request) {
 		Options    AppOptions `json:"options"`
 		Installed  string     `json:"installed"` // tracked apps: the version that's on the machine
 		Location   string     `json:"location"`  // tracked apps: where it is
+		Held       bool       `json:"held"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		jsonError(w, 400, "Invalid request.")
@@ -771,6 +777,19 @@ func (s *Server) apiAppSettings(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 422, "The web address must start with http:// or https://.")
 		return
 	}
+	switch body.Options.Prerelease {
+	case "", "yes", "no":
+	default:
+		jsonError(w, 422, "Pick whether to offer pre-releases.")
+		return
+	}
+	body.Options.IgnoreVersions = strings.TrimSpace(body.Options.IgnoreVersions)
+	if p := body.Options.IgnoreVersions; p != "" {
+		if _, err := regexp.Compile(p); err != nil || len(p) > 200 {
+			jsonError(w, 422, "\"Ignore versions matching\" isn't a valid pattern. Example: nightly|-rc")
+			return
+		}
+	}
 	if a.Method == MethodTrack {
 		if loc := strings.TrimSpace(body.Location); loc != "" {
 			s.store.db.Exec(`UPDATE apps SET dir = ?, location = ? WHERE id = ?`, loc, loc, a.ID)
@@ -784,9 +803,10 @@ func (s *Server) apiAppSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	raw, _ := json.Marshal(body.Options)
-	trackChanged := body.Track != a.Track || strings.TrimSpace(body.Branch) != a.Branch
-	s.store.db.Exec(`UPDATE apps SET track = ?, branch = ?, auto_update = ?, notify = ?, options = ?, updated_at = ? WHERE id = ?`,
-		body.Track, strings.TrimSpace(body.Branch), body.AutoUpdate, body.Notify, string(raw), nowDB(), a.ID)
+	trackChanged := body.Track != a.Track || strings.TrimSpace(body.Branch) != a.Branch ||
+		body.Options.Prerelease != a.Options.Prerelease || body.Options.IgnoreVersions != a.Options.IgnoreVersions
+	s.store.db.Exec(`UPDATE apps SET track = ?, branch = ?, auto_update = ?, notify = ?, held = ?, options = ?, updated_at = ? WHERE id = ?`,
+		body.Track, strings.TrimSpace(body.Branch), body.AutoUpdate, body.Notify, body.Held, string(raw), nowDB(), a.ID)
 	if trackChanged {
 		s.store.db.Exec(`UPDATE apps SET latest_ref = '', latest_label = '', notified_ref = '' WHERE id = ?`, a.ID)
 		go s.checkUpdates(context.Background())
@@ -871,6 +891,7 @@ func (s *Server) apiSaveMachine(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		m, _ := s.store.Machine(id)
+		s.event(r, "Added a machine", body.Name+" ("+body.Host+")")
 		writeJSON(w, 200, map[string]any{"machine": m, "token": body.Token, "commands": s.installCommands(body.Token, body.Port)})
 		return
 	}
@@ -888,6 +909,7 @@ func (s *Server) apiSaveMachine(w http.ResponseWriter, r *http.Request) {
 		body.Token = m.Token
 	}
 	s.store.db.Exec(`UPDATE machines SET name = ?, host = ?, port = ?, use_tls = ?, token = ? WHERE id = ?`, body.Name, body.Host, body.Port, body.UseTLS, body.Token, id)
+	s.event(r, "Changed a machine", body.Name)
 	m, _ = s.store.Machine(id)
 	s.refreshMachine(r.Context(), m)
 	writeJSON(w, 200, map[string]any{"machine": m})
@@ -902,6 +924,7 @@ func (s *Server) apiNewToken(w http.ResponseWriter, r *http.Request) {
 	}
 	tok := randomHex(24)
 	s.store.db.Exec(`UPDATE machines SET token = ? WHERE id = ?`, tok, id)
+	s.event(r, "Made a new agent token", m.Name)
 	writeJSON(w, 200, map[string]any{"token": tok, "commands": s.installCommands(tok, m.Port)})
 }
 
@@ -913,7 +936,10 @@ func (s *Server) apiDeleteMachine(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 409, fmt.Sprintf("%d app(s) are registered on this machine. Uninstall or unregister them first.", n))
 		return
 	}
-	s.store.db.Exec(`DELETE FROM machines WHERE id = ?`, id)
+	if m, err := s.store.Machine(id); err == nil {
+		s.store.db.Exec(`DELETE FROM machines WHERE id = ?`, id)
+		s.event(r, "Deleted a machine", m.Name)
+	}
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
@@ -960,8 +986,16 @@ func (s *Server) apiSaveSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		clean[k] = val
 	}
+	var changed []string
 	for k, v := range clean {
+		if s.settings.Get(k) != v {
+			changed = append(changed, settingIndex[k].Label)
+		}
 		s.settings.Set(k, v)
+	}
+	if len(changed) > 0 {
+		sort.Strings(changed)
+		s.event(r, "Changed settings", strings.Join(changed, ", "))
 	}
 	writeJSON(w, 200, map[string]any{"saved": len(clean)})
 }
@@ -1002,6 +1036,12 @@ func (s *Server) apiAccount(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 422, "Use a new password of 8 to 72 characters.")
 		return
 	}
+	var taken int
+	s.store.db.QueryRow(`SELECT count(*) FROM users WHERE email = ? AND id != ?`, strings.TrimSpace(body.Email), u.ID).Scan(&taken)
+	if taken > 0 {
+		jsonError(w, 422, "Another account already uses that email.")
+		return
+	}
 	s.store.db.Exec(`UPDATE users SET name = ?, email = ? WHERE id = ?`, strings.TrimSpace(body.Name), strings.TrimSpace(body.Email), u.ID)
 	if body.New != "" {
 		s.store.db.Exec(`UPDATE users SET password = ? WHERE id = ?`, hashPassword(body.New), u.ID)
@@ -1039,7 +1079,11 @@ func (s *Server) hookUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "A newer version came out since; open The Repo Depot to update.", http.StatusConflict)
 		return
 	}
-	if _, err := s.startJob(r.Context(), a, spec.ActionUpdate, ref, false); err != nil {
+	if a.Held || a.SkippedRef == ref {
+		http.Error(w, "Updates for "+a.Name()+" were put on hold or this version was skipped since; open The Repo Depot to update.", http.StatusConflict)
+		return
+	}
+	if _, err := s.startJob(r.Context(), a, spec.ActionUpdate, ref, false, "Notification"); err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
@@ -1058,15 +1102,28 @@ func (s *Server) agentScript(name string) http.HandlerFunc {
 			http.NotFound(w, r)
 			return
 		}
-		scheme := "http"
-		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-			scheme = "https"
+		// The script is piped into a root shell, so the address written
+		// into it must be a plain host[:port], never whatever a request's
+		// Host header claims.
+		base := s.settings.Get("public_url")
+		if base == "" {
+			if !hostHeader.MatchString(r.Host) {
+				http.Error(w, "Set the public address in Settings → General first.", http.StatusBadRequest)
+				return
+			}
+			scheme := "http"
+			if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+				scheme = "https"
+			}
+			base = scheme + "://" + r.Host
 		}
-		body := strings.ReplaceAll(string(raw), "__SERVER__", scheme+"://"+r.Host)
+		body := strings.ReplaceAll(string(raw), "__SERVER__", base)
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Write([]byte(body))
 	}
 }
+
+var hostHeader = regexp.MustCompile(`^(\[[0-9a-fA-F:.]+\]|[A-Za-z0-9.-]+)(:[0-9]{1,5})?$`)
 
 var platforms = map[string]string{"linux-amd64": "repodepot-agent-linux-amd64", "linux-arm64": "repodepot-agent-linux-arm64", "windows-amd64": "repodepot-agent-windows-amd64.exe"}
 

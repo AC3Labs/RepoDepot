@@ -131,7 +131,7 @@ func TestReadmeLogoSkipsScreenshots(t *testing.T) {
 
 func TestHighestTagUsesVersionOrderNotStringOrder(t *testing.T) {
 	tags := []Tag{{Name: "v0.9.3.0"}, {Name: "v0.13.0.0"}, {Name: "v0.12.0.0"}, {Name: "v0.14.0.0-rc1"}, {Name: "v0.10.0.1"}}
-	if got := highestTag(tags).Name; got != "v0.13.0.0" {
+	if got := highestTag(tags, false).Name; got != "v0.13.0.0" {
 		t.Fatalf("highest tag %s", got)
 	}
 	if !versionLess("1.2.9", "1.2.10") || versionLess("2.0.0", "2.0.0-rc.1") || !versionLess("2.0.0-rc.1", "2.0.0") {
