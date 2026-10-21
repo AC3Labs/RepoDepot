@@ -13,5 +13,10 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$ALD" -o dist
 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$ALD" -o dist/agents/repodepot-agent-linux-arm64 ./cmd/repodepot-agent
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$ALD" -o dist/agents/repodepot-agent-windows-amd64.exe ./cmd/repodepot-agent
 cp internal/server/web/agent/install.sh internal/server/web/agent/install.ps1 dist/agents/
+# Sign the agents so the server can push them as updates. The key stays on
+# this machine (F:\RepoDepot-signing); without it they're listed unsigned.
+KEY="${REPODEPOT_SIGNING_KEY_FILE:-../RepoDepot-signing/agent-update-key.txt}"
+if [ -z "${REPODEPOT_SIGNING_KEY:-}" ] && [ -f "$KEY" ]; then export REPODEPOT_SIGNING_KEY_FILE="$KEY"; fi
+go run ./cmd/signagents -dir dist/agents -version "$V"
 sed -e "s/^ARG VERSION=.*/ARG VERSION=$V/" -e "s/^ARG REVISION=.*/ARG REVISION=$R/" Dockerfile > dist/Dockerfile
 ls -la dist dist/agents

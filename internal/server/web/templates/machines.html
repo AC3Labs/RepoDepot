@@ -1,8 +1,11 @@
 {{define "content"}}{{$d := .Data}}
-<div x-data="machinesPage({{json (index $d "Machines")}}, {{index $d "Port"}}, {{json (index $d "Welcome")}}, {{json .Version}})" x-init="start()">
+<div x-data="machinesPage({{json (index $d "Machines")}}, {{index $d "Port"}}, {{json (index $d "Welcome")}}, {{json .Version}}, {{json (index $d "UpdateCommands")}})" x-init="start()">
   <div class="page-head">
     <div class="grow"><h1>Machines</h1><div class="sub">The computers software gets installed on. Each runs a small agent.</div></div>
-    <button class="btn primary need-admin" @click="openAdd()">{{template "i-plus"}}Add machine</button>
+    <div class="btn-group">
+      <button class="btn need-admin" x-show="pushable().length" x-cloak @click="updateAll()" :disabled="updatingAll">{{template "i-up"}}<span x-text="'Update all agents ('+pushable().length+')'"></span></button>
+      <button class="btn primary need-admin" @click="openAdd()">{{template "i-plus"}}Add machine</button>
+    </div>
   </div>
 
   <template x-if="welcome && list.length===0">
@@ -24,12 +27,18 @@
           <span class="chip" x-show="m.os" x-text="osName(m.os)+' · '+m.arch"></span>
           <span class="chip" x-show="m.docker">{{template "i-docker"}}Docker</span>
           <span class="chip" x-show="m.agent_version" x-text="'Agent '+m.agent_version"></span>
-          <span class="chip" x-show="agentOld(m)" style="color:var(--warn)" title="Re-run the install command on that machine to update it (Edit → New token shows it)">Agent update available</span>
+          <span class="chip" x-show="upd[m.id] && upd[m.id].to" style="color:var(--warn)" x-text="'Agent '+(upd[m.id]||{}).to+' available'"></span>
           <span class="chip" x-show="m.os && !m.admin" style="color:var(--warn)">Not admin</span>
         </div>
         <div class="tiny muted" x-text="(apps[m.id]!==undefined ? apps[m.id]+' app'+(apps[m.id]===1?'':'s')+' · ' : '') + (m.last_seen ? 'last seen '+(seen[m.id]||'') : 'never seen')"></div>
+        <div class="notice small" x-show="upd[m.id] && upd[m.id].to && !upd[m.id].can_push" x-cloak style="margin:0">
+          <div class="grow"><span x-text="(upd[m.id]||{}).note"></span>
+            <div class="need-admin" style="margin-top:6px"><a href="#" @click.prevent="showUpdateCmd(m)">Show the command</a></div></div>
+        </div>
+        <div class="tiny" x-show="msg[m.id]" x-cloak :style="msgBad[m.id] ? 'color:var(--bad)' : 'color:var(--ok)'" x-text="msg[m.id]"></div>
         <div class="foot">
           <span class="spacer"></span>
+          <button class="btn sm primary need-admin" x-show="upd[m.id] && upd[m.id].can_push" @click="updateAgent(m)" :disabled="updating[m.id]"><span class="spinner" x-show="updating[m.id]"></span><span x-show="!updating[m.id]">{{template "i-up"}}</span><span x-text="updating[m.id] ? 'Updating…' : 'Update agent'"></span></button>
           <button class="btn sm" @click="check(m)">{{template "i-refresh"}}Check</button>
           <button class="btn sm need-admin" @click="openEdit(m)">Edit</button>
         </div>
@@ -39,7 +48,7 @@
 
   <div class="overlay" x-show="dlg" x-cloak x-transition.opacity @keydown.escape.window="dlg=false">
     <div class="modal" @click.outside="dlg=false">
-      <div class="modal-head"><h2 class="grow" x-text="form.id ? 'Edit '+form.name : (created ? 'Install the agent' : 'Add a machine')"></h2><button class="btn ghost icon" @click="dlg=false" aria-label="Close">{{template "i-x"}}</button></div>
+      <div class="modal-head"><h2 class="grow" x-text="cmds.update && created ? 'Update the agent on '+form.name : form.id && !created ? 'Edit '+form.name : (created ? 'Install the agent' : 'Add a machine')"></h2><button class="btn ghost icon" @click="dlg=false" aria-label="Close">{{template "i-x"}}</button></div>
       <div class="modal-body" x-show="!created">
         <div class="field"><label>Name</label><input class="input" x-model="form.name" placeholder="Docker Server" x-ref="name"></div>
         <div class="form-grid">
@@ -50,7 +59,12 @@
         <div class="field" x-show="form.id"><label>Token</label><input class="input mono" x-model="form.token" placeholder="unchanged"><span class="help">Leave empty to keep it. <a href="#" @click.prevent="newToken()">Make a new one</a> (then re-run the install command on the machine).</span></div>
         <div class="notice bad" x-show="form.id && form.apps===0" style="align-items:center">{{template "i-trash"}}<div class="grow small">No apps on this machine.</div><button class="btn sm danger" @click="remove()">Delete machine</button></div>
       </div>
-      <div class="modal-body" x-show="created">
+      <div class="modal-body" x-show="created && cmds.update">
+        <p class="dim">Run one of these on <b x-text="form.name"></b> to update its agent. It keeps the agent's token and settings. After this one, updates come from this page.</p>
+        <div class="field"><label>Linux</label><div class="codebox"><code x-text="cmds.linux"></code><button class="btn sm" @click="copy(cmds.linux)">{{template "i-copy"}}Copy</button></div></div>
+        <div class="field"><label>Windows <span class="muted small">(Terminal as Administrator)</span></label><div class="codebox"><code x-text="cmds.windows"></code><button class="btn sm" @click="copy(cmds.windows)">{{template "i-copy"}}Copy</button></div></div>
+      </div>
+      <div class="modal-body" x-show="created && !cmds.update">
         <p class="dim">Run one of these on <b x-text="form.name"></b>. It downloads the agent from this server, saves the token and starts it as a service. Running it again later updates the agent.</p>
         <div class="field"><label>Linux</label><div class="codebox"><code x-text="cmds.linux"></code><button class="btn sm" @click="copy(cmds.linux)">{{template "i-copy"}}Copy</button></div></div>
         <div class="field"><label>Windows <span class="muted small">(Terminal as Administrator)</span></label><div class="codebox"><code x-text="cmds.windows"></code><button class="btn sm" @click="copy(cmds.windows)">{{template "i-copy"}}Copy</button></div></div>

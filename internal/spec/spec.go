@@ -88,6 +88,17 @@ type Health struct {
 	Docker   bool   `json:"docker"`   // docker and docker compose are usable
 	AppsDir  string `json:"apps_dir"` // default install root
 	Admin    bool   `json:"admin"`    // running with root/administrator rights
+	// Features lists what the agent can do beyond 0.3: "self-update" (0.5).
+	Features []string `json:"features,omitempty"`
+}
+
+func (h Health) Has(feature string) bool {
+	for _, f := range h.Features {
+		if f == feature {
+			return true
+		}
+	}
+	return false
 }
 
 // Manifest is written into every install folder (.repodepot.json) so an

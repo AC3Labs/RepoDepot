@@ -61,15 +61,42 @@ curl -fsSL http://<server>:8470/agent/install.sh | sudo sh -s -- --token <token>
 
 The agent listens on port 8471 and runs as root/Administrator, because
 installing software needs it. Only the server, holding the machine's token,
-can give it jobs. Running the command again updates the agent.
+can give it jobs.
+
+### Updating agents
+
+When the server has a newer agent than a machine, the Machines page shows
+**Update agent** on it (and **Update all agents**), for admins. The server
+sends the agent its new version; the agent checks it, runs it once to make
+sure it starts on that machine, swaps it in and restarts, keeping the old
+one beside it as `.old`. It refuses while it's in the middle of a job.
+
+Agents only install an update signed with The Repo Depot's release key
+(Ed25519; the public half is built into the agent, the private half never
+leaves the build machine), and never an older version. So a machine's token
+alone can't make an agent run a program of someone's choosing.
+
+Agents older than 0.5.0.0 can't update themselves: run the install command
+once more on each (no token needed, it keeps its settings; the Machines page
+shows it). Running the install command again always updates the agent too.
+
+On Windows with Smart App Control on, Windows may block a new, unsigned
+agent build. The agent then stays as it is and the Machines page says why.
 
 ## Build
 
 ```sh
-scripts/build.sh                 # server, agents for linux amd64/arm64 and windows amd64, Docker context in dist/
+scripts/build.sh                 # server, agents for linux amd64/arm64 and windows amd64 (signed), Docker context in dist/
 docker build -t repodepot dist/
 go test ./...
 ```
+
+`scripts/build.sh` signs the agents with the key in `../RepoDepot-signing/`
+(or `$REPODEPOT_SIGNING_KEY_FILE` / `$REPODEPOT_SIGNING_KEY`, a base64
+Ed25519 seed), writing `dist/agents/manifest.json`. Without a key the agents
+are listed unsigned: they install, but can't be pushed as updates. A build
+with its own key puts its public half in `UpdatePublicKey`
+(`internal/agent/selfupdate.go`).
 
 ## How it fits together
 

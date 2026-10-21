@@ -85,6 +85,7 @@ func New(cfg *Config) *Agent {
 	mux.HandleFunc("GET /api/health", a.handleHealth)
 	mux.HandleFunc("POST /api/jobs", a.handleCreateJob)
 	mux.HandleFunc("GET /api/jobs/{id}", a.handleGetJob)
+	mux.HandleFunc("POST /api/self-update", a.handleSelfUpdate)
 	a.srv = &http.Server{Addr: cfg.Listen, Handler: a.auth(mux), ReadHeaderTimeout: 10 * time.Second}
 	return a
 }
@@ -134,6 +135,7 @@ func (a *Agent) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, spec.Health{
 		Hostname: host, OS: runtime.GOOS, Arch: runtime.GOARCH, Version: Version,
 		Docker: dockerUsable(r.Context()), AppsDir: a.cfg.AppsDir, Admin: isAdmin(),
+		Features: []string{"self-update"},
 	})
 }
 

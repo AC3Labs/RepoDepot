@@ -196,6 +196,11 @@ func (s *Server) pageMachines(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, 200, "machines", "Machines", "machines", map[string]any{
 		"Machines": s.machineViews(), "Welcome": r.URL.Query().Get("welcome") == "1",
 		"Port": s.settings.Int("agent_default_port"), "Base": s.publicURL(),
+		// Re-running the installer without a token updates an agent in place.
+		"UpdateCommands": map[string]string{
+			"linux":   "curl -fsSL " + s.publicURL() + "/agent/install.sh | sudo sh",
+			"windows": "& ([scriptblock]::Create((irm '" + s.publicURL() + "/agent/install.ps1')))",
+		},
 	})
 }
 
@@ -958,7 +963,7 @@ func (s *Server) apiMachineStatus(w http.ResponseWriter, r *http.Request) {
 	s.refreshMachine(r.Context(), m)
 	var apps int
 	s.store.db.QueryRow(`SELECT count(*) FROM apps WHERE machine_id = ?`, id).Scan(&apps)
-	writeJSON(w, 200, map[string]any{"machine": m, "apps": apps, "last_seen": ago(m.LastSeen)})
+	writeJSON(w, 200, map[string]any{"machine": m, "apps": apps, "last_seen": ago(m.LastSeen), "agent_update": s.agentUpdateFor(m)})
 }
 
 // ---- API: settings & account ----

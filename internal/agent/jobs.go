@@ -65,12 +65,13 @@ type jobBook struct {
 
 func newJobBook() *jobBook { return &jobBook{jobs: map[string]*job{}} }
 
+// busy: a job for app is running (any app when app is "").
 func (b *jobBook) busy(app string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for _, j := range b.jobs {
 		j.mu.Lock()
-		running := j.app == app && j.state.Status == "running"
+		running := (app == "" || j.app == app) && j.state.Status == "running"
 		j.mu.Unlock()
 		if running {
 			return true

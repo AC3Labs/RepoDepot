@@ -6,6 +6,11 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -250,5 +255,112 @@ func TestLoadConfigBOM(t *testing.T) {
 	}
 	if c.Listen != ":8471" {
 		t.Fatalf("listen = %q", c.Listen)
+	}
+}
+
+// fakeProgram stands in for a new agent: it prints a version, like
+// `repodepot-agent version`.
+func fakeProgram(version string) []byte { return []byte("#!/bin/sh\necho " + version + "\n") }
+
+func TestSelfUpdate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the stand-in program is a shell script")
+	}
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	oldKey := UpdatePublicKey
+	UpdatePublicKey = base64.StdEncoding.EncodeToString(pub)
+	defer func() { UpdatePublicKey = oldKey }()
+	current := Version // "dev" in tests: any numbered version is newer
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "repodepot-agent")
+	os.WriteFile(exe, fakeProgram(current), 0o755)
+	agentExecutable = func() (string, error) { return exe, nil }
+	restarted := make(chan bool, 1)
+	restartAgent = func() { restarted <- true }
+	a := New(&Config{Token: strings.Repeat("t", 32), Listen: ":0", AppsDir: t.TempDir()})
+
+	send := func(body []byte, version, sum string, key ed25519.PrivateKey) int {
+		if sum == "" {
+			s := sha256.Sum256(body)
+			sum = hex.EncodeToString(s[:])
+		}
+		req := httptest.NewRequest(http.MethodPost, "/api/self-update", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+strings.Repeat("t", 32))
+		req.Header.Set("X-RepoDepot-SHA256", sum)
+		req.Header.Set("X-RepoDepot-Version", version)
+		req.Header.Set("X-RepoDepot-Signature", base64.StdEncoding.EncodeToString(ed25519.Sign(key, UpdateMessage(version, runtime.GOOS, runtime.GOARCH, sum))))
+		rec := httptest.NewRecorder()
+		a.Handler().ServeHTTP(rec, req)
+		return rec.Code
+	}
+	unchanged := func(why string) {
+		t.Helper()
+		if got, _ := os.ReadFile(exe); !bytes.Equal(got, fakeProgram(current)) {
+			t.Fatalf("%s: the agent was replaced", why)
+		}
+		if left, _ := filepath.Glob(filepath.Join(dir, ".repodepot-agent-new-*")); len(left) > 0 {
+			t.Fatalf("%s: left %v behind", why, left)
+		}
+	}
+	next := "0.6.0.0"
+	_, other, _ := ed25519.GenerateKey(rand.Reader)
+	if code := send(fakeProgram(next), next, "", other); code != 403 {
+		t.Fatalf("foreign key: %d", code)
+	}
+	unchanged("foreign key")
+	good := sha256.Sum256(fakeProgram(next))
+	if code := send([]byte("something else"), next, hex.EncodeToString(good[:]), priv); code != 400 {
+		t.Fatalf("damaged: %d", code)
+	}
+	unchanged("damaged")
+	if code := send(fakeProgram(current), current, "", priv); code != 409 {
+		t.Fatalf("same version: %d", code)
+	}
+	unchanged("same version")
+	if code := send([]byte("not a program"), next, "", priv); code != 422 {
+		t.Fatalf("won't run: %d", code)
+	}
+	unchanged("won't run")
+	if code := send(fakeProgram("0.5.9.0"), next, "", priv); code != 422 {
+		t.Fatalf("wrong version inside: %d", code)
+	}
+	unchanged("wrong version inside")
+	// Not while a job runs.
+	release := make(chan bool)
+	a.jobs.start("busy-app", func(*jobLog) (string, error) { <-release; return "", nil })
+	if code := send(fakeProgram(next), next, "", priv); code != 409 {
+		t.Fatalf("during a job: %d", code)
+	}
+	close(release)
+	waitIdle(t, a)
+	unchanged("during a job")
+
+	if code := send(fakeProgram(next), next, "", priv); code != 200 {
+		t.Fatalf("update: %d", code)
+	}
+	<-restarted
+	if got, _ := os.ReadFile(exe); !bytes.Equal(got, fakeProgram(next)) {
+		t.Fatalf("new agent not in place: %q", got)
+	}
+	if got, _ := os.ReadFile(exe + ".old"); !bytes.Equal(got, fakeProgram(current)) {
+		t.Fatalf("old agent not kept: %q", got)
+	}
+}
+
+func waitIdle(t *testing.T, a *Agent) {
+	t.Helper()
+	for i := 0; i < 200 && a.jobs.busy(""); i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestCompareVersions(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		want int
+	}{{"0.5.0.0", "0.4.0.1", 1}, {"0.4.0.1", "0.5.0.0", -1}, {"v0.5.0.0", "0.5.0.0", 0}, {"dev", "0.0.0.1", -1}, {"0.10.0.0", "0.9.0.0", 1}} {
+		if got := CompareVersions(c.a, c.b); got != c.want {
+			t.Errorf("CompareVersions(%q, %q) = %d", c.a, c.b, got)
+		}
 	}
 }

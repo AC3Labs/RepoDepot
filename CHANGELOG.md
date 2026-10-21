@@ -2,6 +2,20 @@
 
 Versioned as `release.feature.fix.patch`.
 
+## [0.5.0.0] - 2026-10-21
+
+### Added
+- Agent updates from the Machines page: **Update agent** on any machine
+  whose agent is behind the server, and **Update all agents**. The agent
+  checks the new version, runs it once to make sure it starts on that
+  machine, swaps it in and restarts, keeping the old one as `.old`. It
+  waits if a job is running. Recorded in the audit log.
+- Agents only accept updates signed with The Repo Depot's release key
+  (Ed25519), and never an older version. `scripts/build.sh` signs them
+  (`cmd/signagents`, `dist/agents/manifest.json`).
+- Agents older than 0.5.0.0 show why they can't update from here, with the
+  command that updates them (once, by hand).
+
 ## [0.4.0.1] - 2026-10-20
 
 ### Fixed

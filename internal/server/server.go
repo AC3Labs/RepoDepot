@@ -173,6 +173,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/machines/{id}", admin(s.apiSaveMachine))
 	mux.HandleFunc("POST /api/machines/{id}/delete", admin(s.apiDeleteMachine))
 	mux.HandleFunc("POST /api/machines/{id}/token", admin(s.apiNewToken))
+	mux.HandleFunc("POST /api/machines/{id}/update-agent", admin(s.apiUpdateAgent))
 	mux.HandleFunc("GET /api/machines/{id}/status", a(s.apiMachineStatus))
 	mux.HandleFunc("POST /api/settings", admin(s.apiSaveSettings))
 	mux.HandleFunc("POST /api/settings/test-ntfy", admin(s.apiTestNtfy))

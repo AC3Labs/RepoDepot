@@ -482,19 +482,10 @@ function appPage(app, jobs) {
 
 // ---- machines ----
 
-// newerVersion: is version a newer than b? (numbers compared in order)
-function newerVersion(a, b) {
-  const x = (a.match(/\d+/g) || []).map(Number), y = (b.match(/\d+/g) || []).map(Number);
-  for (let i = 0; i < Math.max(x.length, y.length); i++) {
-    if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
-  }
-  return false;
-}
-
-function machinesPage(list, port, welcome, version) {
+function machinesPage(list, port, welcome, version, updateCmds) {
   return {
-    list, port, welcome, version, state: {}, apps: {}, seen: {}, dlg: false, created: false, saving: false, waiting: false, online: false,
-    form: {}, cmds: {}, poll: null,
+    list, port, welcome, version, updateCmds, state: {}, apps: {}, seen: {}, dlg: false, created: false, saving: false, waiting: false, online: false,
+    form: {}, cmds: {}, poll: null, upd: {}, updating: {}, msg: {}, msgBad: {}, updatingAll: false,
     start() {
       for (const m of this.list) this.check(m);
       if (this.welcome && this.list.length === 0) this.openAdd();
@@ -503,18 +494,18 @@ function machinesPage(list, port, welcome, version) {
       this.state[m.id] = "checking";
       try {
         const r = await api("GET", "/api/machines/" + m.id + "/status");
-        Object.assign(m, r.machine); this.apps[m.id] = r.apps; this.seen[m.id] = r.last_seen;
+        Object.assign(m, r.machine); this.apps[m.id] = r.apps; this.seen[m.id] = r.last_seen; this.upd[m.id] = r.agent_update || {};
       } catch (e) { m.status = "offline"; }
       this.state[m.id] = "";
     },
     openAdd() {
       this.form = { id: 0, name: "", host: "", port: this.port, use_tls: false, token: "" };
-      this.created = false; this.online = false; this.dlg = true;
+      this.cmds = {}; this.created = false; this.online = false; this.dlg = true;
       this.$nextTick(() => this.$refs.name && this.$refs.name.focus());
     },
     openEdit(m) {
       this.form = { id: m.id, name: m.name, host: m.host, port: m.port, use_tls: m.use_tls, token: "", apps: this.apps[m.id] };
-      this.created = false; this.dlg = true;
+      this.cmds = {}; this.created = false; this.dlg = true;
     },
     async save() {
       this.saving = true;
@@ -545,7 +536,29 @@ function machinesPage(list, port, welcome, version) {
       try { await api("POST", "/api/machines/" + this.form.id + "/delete"); this.list = this.list.filter(x => x.id !== this.form.id); this.dlg = false; toast("Deleted"); }
       catch (e) { toast(e.message, "bad"); }
     },
-    agentOld(m) { return !!m.agent_version && /\d/.test(this.version) && /\d/.test(m.agent_version) && newerVersion(this.version, m.agent_version); },
+    // Agents the server can update from here (0.5 and later, signed builds).
+    pushable() { return this.list.filter(m => this.upd[m.id] && this.upd[m.id].can_push && !this.updating[m.id]); },
+    // The server sends the agent its signed update and waits (up to about
+    // a minute and a half) for it to come back as the new version.
+    async updateAgent(m) {
+      this.updating[m.id] = true; this.msg[m.id] = ""; this.msgBad[m.id] = false;
+      try {
+        const r = await api("POST", "/api/machines/" + m.id + "/update-agent");
+        this.msg[m.id] = r.message; Object.assign(m, r.machine);
+      } catch (e) { this.msg[m.id] = e.message; this.msgBad[m.id] = true; }
+      this.updating[m.id] = false;
+      await this.check(m);
+    },
+    async updateAll() {
+      this.updatingAll = true;
+      await Promise.all(this.pushable().map(m => this.updateAgent(m)));
+      this.updatingAll = false;
+    },
+    showUpdateCmd(m) {
+      this.form = { id: m.id, name: m.name };
+      this.cmds = { linux: this.updateCmds.linux, windows: this.updateCmds.windows, update: true };
+      this.created = true; this.dlg = true;
+    },
     copy: copyText,
   };
 }
