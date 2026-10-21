@@ -239,3 +239,16 @@ func TestVerifySHA256(t *testing.T) {
 		t.Fatalf("bad sum accepted: %v", err)
 	}
 }
+
+// Windows PowerShell 5.1 writes the config with a UTF-8 byte-order mark.
+func TestLoadConfigBOM(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.json")
+	os.WriteFile(p, []byte("\xef\xbb\xbf{\"token\":\"0123456789abcdef0123\",\"listen\":\":8471\"}"), 0o600)
+	c, err := LoadConfig(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Listen != ":8471" {
+		t.Fatalf("listen = %q", c.Listen)
+	}
+}

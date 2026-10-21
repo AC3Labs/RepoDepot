@@ -2,6 +2,18 @@
 
 Versioned as `release.feature.fix.patch`.
 
+## [0.3.0.1] - 2026-10-20
+
+### Fixed
+- Windows agent stopped straight after starting: Windows PowerShell 5.1 saved
+  its config with a UTF-8 byte-order mark, which the agent couldn't read. The
+  agent now accepts it and the installer no longer writes it.
+- The Windows installer now checks the agent service really started instead
+  of always saying it's running.
+- Windows firewall rule now applies on any network type (home networks are
+  often marked Public), limited to the local subnet. Re-running the installer
+  fixes an older rule.
+
 ## [0.3.0.0] - 2026-10-19
 
 ### Added

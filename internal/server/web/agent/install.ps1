@@ -30,15 +30,26 @@ $tmp = "$Bin.new"
 Invoke-WebRequest -UseBasicParsing "$Server/agent/download/windows-amd64" -OutFile $tmp
 Move-Item -Force $tmp $Bin
 
-@{ token = $Token; listen = ":$Port"; apps_dir = $AppsDir } | ConvertTo-Json | Set-Content -Encoding UTF8 $Conf
+# UTF-8 without a byte-order mark (Set-Content -Encoding UTF8 adds one in PowerShell 5.1).
+$json = @{ token = $Token; listen = ":$Port"; apps_dir = $AppsDir } | ConvertTo-Json
+[IO.File]::WriteAllText($Conf, $json, (New-Object Text.UTF8Encoding $false))
 icacls $ConfDir /inheritance:r /grant:r "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F" | Out-Null
 New-Item -ItemType Directory -Force -Path $AppsDir | Out-Null
 
-if (-not (Get-NetFirewallRule -DisplayName "The Repo Depot Agent" -ErrorAction SilentlyContinue)) {
-  New-NetFirewallRule -DisplayName "The Repo Depot Agent" -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow -Profile Private,Domain | Out-Null
+# Any network profile (home networks are often marked Public), but only
+# from the local subnet. Re-running fixes the port/profile of an old rule.
+$rule = Get-NetFirewallRule -DisplayName "The Repo Depot Agent" -ErrorAction SilentlyContinue
+if ($rule) {
+  $rule | Set-NetFirewallRule -Profile Any -RemoteAddress LocalSubnet -Enabled True
+  $rule | Get-NetFirewallPortFilter | Set-NetFirewallPortFilter -Protocol TCP -LocalPort $Port
+} else {
+  New-NetFirewallRule -DisplayName "The Repo Depot Agent" -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow -Profile Any -RemoteAddress LocalSubnet | Out-Null
 }
 
 & $Bin -config $Conf install-service
 Start-Sleep 2
 $v = & $Bin version
+if ((Get-Service RepoDepotAgent -ErrorAction SilentlyContinue).Status -ne "Running") {
+  throw "The agent service didn't start. Check Event Viewer → Windows Logs → Application."
+}
 Write-Host "The Repo Depot agent $v is running on port $Port."

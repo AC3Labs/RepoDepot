@@ -3,6 +3,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -54,6 +55,8 @@ func LoadConfig(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("no agent config at %s: %w", path, err)
 	}
+	// Windows PowerShell 5.1 writes UTF-8 with a byte-order mark.
+	raw = bytes.TrimPrefix(raw, []byte("\xef\xbb\xbf"))
 	c := &Config{}
 	if err := json.Unmarshal(raw, c); err != nil {
 		return nil, fmt.Errorf("agent config %s isn't valid JSON: %w", path, err)
