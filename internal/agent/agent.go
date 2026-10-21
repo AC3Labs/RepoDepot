@@ -194,6 +194,16 @@ func (a *Agent) validate(j *spec.Job) error {
 	}
 	switch j.Method {
 	case spec.MethodCompose, spec.MethodRelease, spec.MethodSource:
+	case spec.MethodCommand:
+		if j.Action != spec.ActionUpdate {
+			return errors.New("an update command can only update an app")
+		}
+		if strings.TrimSpace(j.Command) == "" {
+			return errors.New("this update needs a command")
+		}
+		if j.Dir == "" {
+			return errors.New("this update needs the app's folder")
+		}
 	default:
 		return fmt.Errorf("unknown method %q", j.Method)
 	}
@@ -207,7 +217,7 @@ func (a *Agent) validate(j *spec.Job) error {
 	if isRootish(j.Dir) {
 		return fmt.Errorf("refusing to install into %s", j.Dir)
 	}
-	if j.Action != spec.ActionUninstall {
+	if j.Action != spec.ActionUninstall && j.Method != spec.MethodCommand {
 		switch j.Method {
 		case spec.MethodRelease:
 			if j.AssetURL == "" {

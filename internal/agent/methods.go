@@ -23,24 +23,26 @@ func (a *Agent) run(ctx context.Context, j *spec.Job, l *jobLog) (string, error)
 		l.Printf("Version: %s", j.Ref)
 	}
 	l.Printf("Folder: %s", j.Dir)
-	switch j.Action {
-	case spec.ActionUninstall:
+	if j.Action == spec.ActionUninstall {
 		return j.Dir, a.uninstall(ctx, j, l)
+	}
+	if j.Method == spec.MethodCommand {
+		if fi, err := os.Stat(j.Dir); err != nil || !fi.IsDir() {
+			return "", fmt.Errorf("the folder %s doesn't exist on this machine", j.Dir)
+		}
+		l.Printf("Running the update command")
+		return j.Dir, runShell(ctx, l, j.Dir, jobEnv(j), j.Command)
+	}
+	if err := os.MkdirAll(j.Dir, 0o755); err != nil {
+		return "", err
+	}
+	switch j.Method {
+	case spec.MethodCompose:
+		return a.installCompose(ctx, j, l)
+	case spec.MethodRelease:
+		return a.installRelease(ctx, j, l)
 	default:
-		if err := os.MkdirAll(j.Dir, 0o755); err != nil {
-			return "", err
-		}
-		var err error
-		var loc string
-		switch j.Method {
-		case spec.MethodCompose:
-			loc, err = a.installCompose(ctx, j, l)
-		case spec.MethodRelease:
-			loc, err = a.installRelease(ctx, j, l)
-		case spec.MethodSource:
-			loc, err = a.installSource(ctx, j, l)
-		}
-		return loc, err
+		return a.installSource(ctx, j, l)
 	}
 }
 

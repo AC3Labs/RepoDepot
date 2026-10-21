@@ -136,7 +136,7 @@ func (s *Server) checkUpdates(ctx context.Context) int {
 					continue
 				}
 				found.Add(1)
-				if a.AutoUpdate && a.Method != MethodTrack {
+				if a.AutoUpdate && a.CanUpdate() {
 					// Each version is tried once automatically: a failed
 					// update isn't retried (and re-reported) every check.
 					if a.AutoTriedRef == t.Ref || a.ActiveJob != 0 || a.MachineStatus == "offline" || !inWindow {
@@ -334,7 +334,7 @@ func (s *Server) notifyUpdate(a *App, t *Target) {
 	body := fmt.Sprintf("%s → %s on %s", from, t.Label, a.MachineName)
 	page := fmt.Sprintf("/apps/%d", a.ID)
 	actions := []ntfyAction{{Action: "view", Label: "Open", URL: s.publicURL() + page}}
-	if a.Method == MethodTrack {
+	if !a.CanUpdate() {
 		body += " (tracked: update it the usual way)"
 	} else if s.settings.Bool("one_tap_updates") {
 		actions = append(actions, ntfyAction{Action: "http", Label: "Update now", URL: s.hookURL(a.ID, t.Ref), Method: "POST", Clear: true})

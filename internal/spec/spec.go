@@ -8,6 +8,9 @@ const (
 	MethodCompose = "compose" // a Docker Compose project from the repo's source
 	MethodRelease = "release" // a file attached to a GitHub release
 	MethodSource  = "source"  // the repo's source at a ref, plus an optional build command
+	// MethodCommand updates software installed some other way (a tracked
+	// app) by running its own update command in its folder.
+	MethodCommand = "command"
 )
 
 // Job actions.
@@ -48,6 +51,7 @@ type Job struct {
 	Env              string `json:"env,omitempty"`              // written as .env next to the compose file
 
 	PostInstall string `json:"post_install,omitempty"` // shell command run in the install folder after install/update
+	Command     string `json:"command,omitempty"`      // command method: the shell command that updates the app
 
 	Service *Service `json:"service,omitempty"` // run the installed program as a system service
 

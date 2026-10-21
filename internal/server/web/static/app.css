@@ -267,9 +267,13 @@ kbd {
 .app-card .name a { color: var(--text); }
 .app-card .name a:hover { color: var(--accent); }
 .app-card .loc { font-family: ui-monospace, Consolas, monospace; font-size: .78rem; color: var(--muted); background: var(--bg); border: 1px solid var(--border); border-radius: 7px; padding: 4px 8px; }
-.app-card .ver { display: flex; align-items: center; gap: 8px; font-size: .86rem; }
+.app-card .ver { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: .86rem; }
+.app-card.has-ribbon { padding-top: 26px; }
+.wrap-any { overflow-wrap: anywhere; min-width: 0; }
+.bad-text { color: var(--bad); }
 .app-card .ver .arrow { color: var(--accent); }
-.app-card .foot { display: flex; align-items: center; gap: 8px; margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border); }
+.app-card .foot { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border); }
+.app-card .foot .status { flex: 1 0 100%; overflow-wrap: anywhere; }
 .app-card .sel { position: absolute; top: 14px; right: 14px; }
 .update-ribbon { position: absolute; top: -1px; left: 18px; background: var(--accent); color: var(--accent-ink); font-size: .7rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; padding: 2px 8px; border-radius: 0 0 7px 7px; }
 .progress { height: 4px; background: var(--surface-3); border-radius: 99px; overflow: hidden; }

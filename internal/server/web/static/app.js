@@ -131,7 +131,7 @@ function depot(apps, machines, view, lastCheck) {
   return {
     apps, machines, view: localStorage.getItem("depot-view") || view, lastCheck, checking: false,
     q: "", machine: "", filter: "all", selected: {}, timer: null,
-    get updatable() { return this.apps.filter(a => a.update_available && !busy(a) && a.method !== "track"); },
+    get updatable() { return this.apps.filter(a => a.update_available && !busy(a) && a.can_update); },
     get shown() {
       const q = this.q.toLowerCase();
       return this.apps.filter(a =>
@@ -165,7 +165,16 @@ function depot(apps, machines, view, lastCheck) {
     setView(v) { this.view = v; try { localStorage.setItem("depot-view", v); } catch (e) { } },
     allSelected() { return this.shown.length > 0 && this.shown.every(a => this.selected[a.id]); },
     selectAll(on) { for (const a of this.shown) this.selected[a.id] = on; },
-    selectedUpdatable() { return this.apps.filter(a => this.selected[a.id] && a.update_available && !busy(a) && a.method !== "track").map(a => a.id); },
+    selectedUpdatable() { return this.apps.filter(a => this.selected[a.id] && a.update_available && !busy(a) && a.can_update).map(a => a.id); },
+    // Why "Update selected" is off, as a tooltip.
+    updateSelectedHint() {
+      const sel = this.apps.filter(a => this.selected[a.id]);
+      if (!sel.length) return "Tick the apps to update";
+      if (this.selectedUpdatable().length) return "";
+      const manual = sel.filter(a => a.update_available && !a.can_update);
+      if (manual.length) return manual.map(a => a.name).join(", ") + ": tracked only. Add an update command in its Settings, or update it the usual way and use Mark updated.";
+      return "None of the selected apps has an update waiting";
+    },
     async checkNow() {
       this.checking = true;
       try {
@@ -367,7 +376,7 @@ function appPage(app, jobs) {
   return {
     a: app, jobs, tab: "activity", open: {}, removeData: false, saving: false, timer: null, changes: null, changesError: "", versions: null,
     s: { track: app.track, branch: app.branch, auto_update: app.auto_update, notify: app.notify, held: app.held,
-      options: Object.assign({ prerelease: "", ignore_versions: "" }, app.options),
+      options: Object.assign({ prerelease: "", ignore_versions: "", update_command: "" }, app.options),
       installed: app.installed_ref, location: app.location || app.dir },
     start() {
       if (this.jobs.length) this.open[this.jobs[0].id] = true;

@@ -46,7 +46,7 @@
         </div>
         <div class="spacer"></div>
         <label class="row small dim need-member" style="gap:7px;cursor:pointer"><input type="checkbox" class="check" :checked="allSelected()" @change="selectAll($event.target.checked)">Select all</label>
-        <button class="btn sm need-member" :disabled="selectedUpdatable().length===0" @click="updateIds(selectedUpdatable())">{{template "i-up"}}Update selected <span x-show="selectedUpdatable().length" x-text="'('+selectedUpdatable().length+')'"></span></button>
+        <button class="btn sm need-member" :disabled="selectedUpdatable().length===0" :title="updateSelectedHint()" @click="updateIds(selectedUpdatable())">{{template "i-up"}}Update selected <span x-show="selectedUpdatable().length" x-text="'('+selectedUpdatable().length+')'"></span></button>
         <button class="btn sm primary need-member" :disabled="updatable.length===0" @click="updateAll()">{{template "i-up"}}Update all <span x-show="updatable.length" x-text="'('+updatable.length+')'"></span></button>
         <div class="seg">
           <button :class="view==='grid'&&'on'" @click="setView('grid')" title="Cards" aria-label="Cards">{{template "i-grid"}}</button>
@@ -58,14 +58,14 @@
 
       <div class="apps" x-show="view==='grid'">
         <template x-for="a in shown" :key="a.id">
-          <div class="card app-card" :class="selected[a.id] && 'selected'">
+          <div class="card app-card" :class="{selected: selected[a.id], 'has-ribbon': a.update_available && !busy(a)}">
             <div class="update-ribbon" x-show="a.update_available && !busy(a)">Update</div>
             <input type="checkbox" class="check sel need-member" x-model="selected[a.id]" :aria-label="'Select '+a.name">
             <div class="row" style="gap:13px;padding-right:26px">
               <img class="logo m" :src="a.logo_url" alt="" loading="lazy" width="52" height="52" @error="$el.src='/static/icon.webp'">
               <div class="grow">
-                <div class="name truncate"><a :href="'/apps/'+a.id" x-text="a.name"></a></div>
-                <div class="tiny muted truncate" x-text="a.repo"></div>
+                <div class="name wrap-any"><a :href="'/apps/'+a.id" x-text="a.name"></a></div>
+                <div class="tiny muted wrap-any" x-text="a.repo"></div>
               </div>
             </div>
             <div class="row wrap" style="gap:6px">
@@ -73,18 +73,18 @@
               <span class="chip" x-text="methodLabel(a.method)"></span>
               <span x-html="statusPill(a)"></span>
             </div>
-            <div class="loc truncate" :title="a.location||a.dir" x-text="a.location||a.dir"></div>
+            <div class="loc wrap-any" x-show="a.location||a.dir" x-text="a.location||a.dir"></div>
             <div class="ver">
               <span class="muted">{{template "i-tag"}}</span>
-              <span class="truncate" x-text="a.installed_label||'—'" :title="a.installed_ref"></span>
-              <template x-if="a.update_available"><span class="row" style="gap:6px"><span class="arrow">→</span><a :href="a.latest_url" target="_blank" rel="noopener" class="truncate" x-text="a.latest_label"></a></span></template>
+              <span class="wrap-any" x-text="a.installed_label||'—'" :title="a.installed_ref"></span>
+              <template x-if="a.update_available"><span class="row" style="gap:6px"><span class="arrow">→</span><a :href="a.latest_url" target="_blank" rel="noopener" class="wrap-any" x-text="a.latest_label"></a></span></template>
             </div>
             <div class="progress" x-show="busy(a)" x-cloak><div></div></div>
             <div class="foot">
-              <span class="tiny muted truncate grow" x-text="a.check_error ? 'Check failed: '+a.check_error : 'Checked '+a.checked_ago"></span>
+              <span class="tiny muted status" :class="a.check_error && 'bad-text'" x-text="a.check_error ? 'Check failed: '+a.check_error : 'Checked '+a.checked_ago"></span>
               <a class="btn sm" x-show="a.options.open_url" :href="a.options.open_url" target="_blank" rel="noopener">{{template "i-external"}}Open</a>
-              <button class="btn sm primary need-member" x-show="a.update_available && !busy(a) && a.method!=='track'" @click="updateOne(a)">{{template "i-up"}}Update</button>
-              <button class="btn sm need-member" x-show="a.update_available && a.method==='track'" @click="markUpdated(a)" title="You updated it yourself">{{template "i-check"}}Mark updated</button>
+              <button class="btn sm primary need-member" x-show="a.update_available && !busy(a) && a.can_update" @click="updateOne(a)">{{template "i-up"}}Update</button>
+              <button class="btn sm need-member" x-show="a.update_available && !a.can_update" @click="markUpdated(a)" title="You updated it yourself">{{template "i-check"}}Mark updated</button>
               <a class="btn sm" :href="'/apps/'+a.id">Details</a>
             </div>
           </div>
@@ -103,7 +103,7 @@
                 <td class="hide-sm"><span class="mono tiny muted" x-text="a.location||a.dir"></span></td>
                 <td class="small"><span x-text="a.installed_label||'—'"></span><template x-if="a.update_available"><span> <span style="color:var(--accent)">→</span> <span x-text="a.latest_label"></span></span></template></td>
                 <td x-html="statusPill(a)"></td>
-                <td class="nowrap" style="text-align:right"><a class="btn sm" x-show="a.options.open_url" :href="a.options.open_url" target="_blank" rel="noopener">Open</a> <button class="btn sm primary need-member" x-show="a.update_available && !busy(a) && a.method!=='track'" @click="updateOne(a)">Update</button><button class="btn sm need-member" x-show="a.update_available && a.method==='track'" @click="markUpdated(a)">Mark updated</button> <a class="btn sm" :href="'/apps/'+a.id">Details</a></td>
+                <td class="nowrap" style="text-align:right"><a class="btn sm" x-show="a.options.open_url" :href="a.options.open_url" target="_blank" rel="noopener">Open</a> <button class="btn sm primary need-member" x-show="a.update_available && !busy(a) && a.can_update" @click="updateOne(a)">Update</button><button class="btn sm need-member" x-show="a.update_available && !a.can_update" @click="markUpdated(a)">Mark updated</button> <a class="btn sm" :href="'/apps/'+a.id">Details</a></td>
               </tr>
             </template>
           </tbody>

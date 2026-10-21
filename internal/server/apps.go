@@ -30,6 +30,7 @@ type AppOptions struct {
 	OpenURL          string `json:"open_url,omitempty"`        // the app's own web address, for an "Open" button
 	Prerelease       string `json:"prerelease,omitempty"`      // "", "yes" or "no": offer pre-releases ("" = Settings → Updates)
 	IgnoreVersions   string `json:"ignore_versions,omitempty"` // versions matching this pattern are never offered
+	UpdateCommand    string `json:"update_command,omitempty"`  // tracked apps: shell command, run in its folder, that updates it
 }
 
 type App struct {
@@ -80,6 +81,12 @@ func (a *App) NewerKnown() bool {
 // user hasn't held the app or skipped that version.
 func (a *App) UpdateAvailable() bool {
 	return a.NewerKnown() && !a.Held && a.LatestRef != a.SkippedRef && (a.Status == "installed" || a.Status == "error")
+}
+
+// CanUpdate: The Repo Depot can update it itself. True for everything it
+// installed, and for tracked apps that have an update command.
+func (a *App) CanUpdate() bool {
+	return a.Method != MethodTrack || strings.TrimSpace(a.Options.UpdateCommand) != ""
 }
 
 // updateAvailableSQL is UpdateAvailable as a query condition.
@@ -265,7 +272,7 @@ func (r *Runner) release() {
 
 var errBusy = errors.New("this app already has a job running")
 
-var errTracked = errors.New("this app is tracked only: update it the way it was installed, then mark it updated here")
+var errTracked = errors.New("this app is tracked only: give it an update command in its Settings, or update it the way it was installed and mark it updated here")
 
 // startJob prepares and queues an install, update or uninstall for an app.
 // ref "" means the latest version for the app's tracking. by is who asked
@@ -274,14 +281,24 @@ func (s *Server) startJob(ctx context.Context, app *App, action, ref string, rem
 	if app.ActiveJob != 0 {
 		return 0, errBusy
 	}
-	if app.Method == MethodTrack {
+	tracked := app.Method == MethodTrack
+	if tracked && (action != spec.ActionUpdate || !app.CanUpdate()) {
 		return 0, errTracked
+	}
+	if tracked && ref != "" && ref != app.LatestRef {
+		return 0, errors.New("a tracked app's update command can only update it to the latest version")
+	}
+	if tracked && strings.TrimSpace(app.Dir) == "" {
+		return 0, errors.New("set where it is (its folder) in the app's Settings first")
 	}
 	m, err := s.store.Machine(app.MachineID)
 	if err != nil {
 		return 0, errors.New("the machine for this app no longer exists")
 	}
 	j := &spec.Job{Action: action, Method: app.Method, App: app.Slug, Repo: app.Repo, Dir: app.Dir, RemoveData: removeData}
+	if tracked {
+		j.Method, j.Command = spec.MethodCommand, app.Options.UpdateCommand
+	}
 	label := ""
 	if action != spec.ActionUninstall {
 		repo, err := s.gh.Repo(ctx, app.Repo, s.gh.minutes("cache_repo_minutes"))
@@ -293,8 +310,10 @@ func (s *Server) startJob(ctx context.Context, app *App, action, ref string, rem
 			return 0, err
 		}
 		j.Ref, label = target.Ref, target.Label
-		if err := s.fillJob(ctx, j, app, repo, m, target); err != nil {
-			return 0, err
+		if !tracked {
+			if err := s.fillJob(ctx, j, app, repo, m, target); err != nil {
+				return 0, err
+			}
 		}
 	}
 	status := map[string]string{spec.ActionInstall: "installing", spec.ActionUpdate: "updating", spec.ActionUninstall: "uninstalling"}[action]

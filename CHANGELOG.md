@@ -2,6 +2,23 @@
 
 Versioned as `release.feature.fix.patch`.
 
+## [0.4.0.0] - 2026-10-20
+
+### Added
+- Update commands for tracked apps: give a "Track only" app a shell command
+  (run in its folder on its machine, with the new version in
+  $REPODEPOT_REF) and The Repo Depot can update it itself — Update, Update
+  selected, Update all and automatic updates. It always updates to the latest
+  version; a failed command leaves the old version recorded. Needs agent
+  0.4.0.0 on that machine.
+
+### Fixed
+- My Depot cards grow to show everything instead of cutting off text: app
+  name, repo, folder, versions and the "Checked …" line, which now sits on
+  its own line above the buttons. The Update ribbon no longer covers the logo.
+- "Update selected" explains (on hover) why it's off, such as a tracked app
+  without an update command.
+
 ## [0.3.0.1] - 2026-10-20
 
 ### Fixed

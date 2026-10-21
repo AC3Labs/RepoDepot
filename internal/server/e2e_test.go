@@ -491,3 +491,102 @@ func TestTrackOnlyAppsAreWatchedButNeverTouched(t *testing.T) {
 		t.Fatalf("unregister: %d", code)
 	}
 }
+
+// A tracked app with an update command is updated by running that command
+// in its folder on the machine; Update selected and Update all include it.
+func TestTrackedAppWithUpdateCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the command is a POSIX shell command")
+	}
+	gh := newFakeGitHub(t)
+	gh.mu.Lock()
+	gh.releases = []string{"v1.1.0", "v1.0.0"}
+	gh.mu.Unlock()
+	token := strings.Repeat("b", 32)
+	ag := agent.New(&agent.Config{Token: token, AppsDir: filepath.Join(t.TempDir(), "apps")})
+	agentSrv := httptest.NewServer(ag.Handler())
+	defer agentSrv.Close()
+	au, _ := url.Parse(agentSrv.URL)
+	port, _ := strconv.Atoi(au.Port())
+
+	s, err := New(Config{DataDir: t.TempDir(), Listen: ":0", AgentsDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.settings.Set("github_api", gh.srv.URL)
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+	jar, _ := cookiejar.New(nil)
+	b := &browser{t: t, base: srv.URL, c: &http.Client{Jar: jar}}
+	resp, _ := b.c.PostForm(srv.URL+"/setup", url.Values{"name": {"A"}, "email": {"a@example.com"}, "password": {"pass-word-1"}, "password_confirm": {"pass-word-1"}})
+	resp.Body.Close()
+	b.page("/")
+	var made struct{ Machine Machine }
+	b.call("POST", "/api/machines", map[string]any{"name": "Box", "host": au.Hostname(), "port": port, "token": token}, &made)
+	b.call("GET", fmt.Sprintf("/api/machines/%d/status", made.Machine.ID), nil, nil)
+
+	dir := t.TempDir()
+	var res struct{ Results []installResult }
+	b.call("POST", "/api/install", map[string]any{"repo": "me/tool", "machines": []int64{made.Machine.ID}, "method": "track", "track": "release",
+		"version": "v1.0.0", "dirs": map[string]string{fmt.Sprint(made.Machine.ID): dir}, "notify": true}, &res)
+	id := res.Results[0].AppID
+	waitFor(t, "update found", func() bool { a, _ := s.store.App(id); return a.UpdateAvailable() })
+
+	// Without a command it isn't updatable, and Update selected says why.
+	var many struct {
+		Started int
+		Failed  []string
+	}
+	b.call("POST", "/api/apps/update", map[string]any{"ids": []int64{id}}, &many)
+	if many.Started != 0 || len(many.Failed) != 1 || !strings.Contains(many.Failed[0], "update command") {
+		t.Fatalf("update selected without a command: %+v", many)
+	}
+	var list struct{ Apps []map[string]any }
+	b.call("GET", "/api/apps", nil, &list)
+	if list.Apps[0]["can_update"] != false {
+		t.Fatalf("can_update without a command: %v", list.Apps[0]["can_update"])
+	}
+
+	// Give it one: Update selected runs it in the folder.
+	b.call("POST", fmt.Sprintf("/api/apps/%d/settings", id), map[string]any{"track": "release", "notify": true, "location": dir,
+		"options": map[string]any{"update_command": `echo "$REPODEPOT_REF" > updated.txt`}}, nil)
+	b.call("GET", "/api/apps", nil, &list)
+	if list.Apps[0]["can_update"] != true {
+		t.Fatalf("can_update with a command: %v", list.Apps[0]["can_update"])
+	}
+	b.call("POST", "/api/apps/update", map[string]any{"ids": []int64{id}}, &many)
+	if many.Started != 1 {
+		t.Fatalf("update selected with a command: %+v", many)
+	}
+	waitFor(t, "updated", func() bool { a, _ := s.store.App(id); return a.InstalledRef == "v1.1.0" && a.Status == "installed" })
+	got, _ := os.ReadFile(filepath.Join(dir, "updated.txt"))
+	if strings.TrimSpace(string(got)) != "v1.1.0" {
+		t.Fatalf("command output: %q", got)
+	}
+	// Still tracked only: no uninstall or reinstall from here.
+	if code := b.call("POST", fmt.Sprintf("/api/apps/%d/uninstall", id), map[string]any{}, nil); code != 409 {
+		t.Fatalf("uninstall of a tracked app: %d", code)
+	}
+	// The command always brings the latest version, so no older ones.
+	if code := b.call("POST", fmt.Sprintf("/api/apps/%d/update", id), map[string]any{"ref": "v1.0.0"}, nil); code != 409 {
+		t.Fatalf("older version of a tracked app: %d", code)
+	}
+
+	// A failing command leaves the old version recorded.
+	gh.mu.Lock()
+	gh.releases = []string{"v1.2.0", "v1.1.0", "v1.0.0"}
+	gh.mu.Unlock()
+	b.call("POST", fmt.Sprintf("/api/apps/%d/settings", id), map[string]any{"track": "release", "notify": true, "location": dir,
+		"options": map[string]any{"update_command": "exit 3"}}, nil)
+	b.call("POST", "/api/check", nil, nil)
+	if a, _ := s.store.App(id); a.LatestRef != "v1.2.0" {
+		t.Fatalf("v1.2.0 not found: %+v", a)
+	}
+	if code := b.call("POST", fmt.Sprintf("/api/apps/%d/update", id), map[string]any{}, nil); code != 200 {
+		t.Fatalf("update: %d", code)
+	}
+	waitFor(t, "failed job", func() bool { a, _ := s.store.App(id); return a.ActiveJob == 0 && a.Status == "installed" })
+	if a, _ := s.store.App(id); a.InstalledRef != "v1.1.0" {
+		t.Fatalf("after a failed command: %+v", a)
+	}
+}

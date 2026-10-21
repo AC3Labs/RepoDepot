@@ -115,12 +115,13 @@ type appView struct {
 	Owner           string `json:"owner"`
 	LogoURL         string `json:"logo_url"`
 	UpdateAvailable bool   `json:"update_available"`
+	CanUpdate       bool   `json:"can_update"`
 	CheckedAgo      string `json:"checked_ago"`
 	InstalledAgo    string `json:"installed_ago"`
 }
 
 func (s *Server) viewApp(a *App) appView {
-	v := appView{App: a, Name: a.Name(), Owner: a.Owner(), UpdateAvailable: a.UpdateAvailable(), CheckedAgo: ago(a.CheckedAt), InstalledAgo: ago(a.InstalledAt)}
+	v := appView{App: a, Name: a.Name(), Owner: a.Owner(), UpdateAvailable: a.UpdateAvailable(), CanUpdate: a.CanUpdate(), CheckedAgo: ago(a.CheckedAt), InstalledAgo: ago(a.InstalledAt)}
 	if a.Logo != "" {
 		v.LogoURL = "/logos/" + a.Logo
 	} else {
@@ -691,9 +692,9 @@ func (s *Server) apiUpdateMany(w http.ResponseWriter, r *http.Request) {
 		if !(body.All && a.UpdateAvailable()) && !want[a.ID] {
 			continue
 		}
-		if a.Method == MethodTrack {
+		if !a.CanUpdate() {
 			if want[a.ID] {
-				failed = append(failed, a.Name()+" is tracked only; update it the way it was installed.")
+				failed = append(failed, a.Name()+" is tracked only and has no update command; update it the way it was installed, or add one in its Settings.")
 			}
 			continue
 		}
@@ -784,6 +785,10 @@ func (s *Server) apiAppSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Options.IgnoreVersions = strings.TrimSpace(body.Options.IgnoreVersions)
+	body.Options.UpdateCommand = strings.TrimSpace(body.Options.UpdateCommand)
+	if a.Method != MethodTrack {
+		body.Options.UpdateCommand = ""
+	}
 	if p := body.Options.IgnoreVersions; p != "" {
 		if _, err := regexp.Compile(p); err != nil || len(p) > 200 {
 			jsonError(w, 422, "\"Ignore versions matching\" isn't a valid pattern. Example: nightly|-rc")
