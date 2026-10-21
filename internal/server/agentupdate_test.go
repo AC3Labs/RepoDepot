@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -162,5 +163,54 @@ func TestAgentUpdatesFromTheMachinesPage(t *testing.T) {
 	var fail struct{ Message string }
 	if code := admin.call("POST", fmt.Sprintf("/api/machines/%d/update-agent", idRecent), nil, &fail); code != 422 || !strings.Contains(fail.Message, "release key") {
 		t.Fatalf("foreign key: %d %+v", code, fail)
+	}
+}
+
+func TestAgentsUpdateAutomatically(t *testing.T) {
+	old := agentUpdatePoll
+	agentUpdatePoll = 20 * time.Millisecond
+	defer func() { agentUpdatePoll = old }()
+
+	s, _, admin := testServer(t)
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	writeAgents(t, s.cfg.AgentsDir, "0.6.0.0", []byte("the new agent"), priv)
+	tok := strings.Repeat("a", 32)
+	ag := newUpdatableAgent(t, "0.5.0.0", pub, tok)
+	u, _ := url.Parse(ag.srv.URL)
+	port, _ := strconv.Atoi(u.Port())
+	var made struct{ Machine Machine }
+	admin.call("POST", "/api/machines", map[string]any{"name": "Box", "host": u.Hostname(), "port": port, "token": tok}, &made)
+
+	// Switched off: nothing happens.
+	s.settings.Set("agent_auto_update", "false")
+	s.checkMachines(context.Background())
+	s.autoUpdateAgents(context.Background())
+	if ag.got != nil {
+		t.Fatal("updated with automatic updates off")
+	}
+
+	// On (the default): the machine check brings it up to date, no click.
+	s.settings.Set("agent_auto_update", "true")
+	s.autoUpdateAgents(context.Background())
+	if m, _ := s.store.Machine(made.Machine.ID); m.AgentVersion != "0.6.0.0" || ag.got == nil {
+		t.Fatalf("not updated automatically: %+v", m)
+	}
+	if ev := s.events(5); !strings.Contains(ev[0].Detail, "from 0.5.0.0 to 0.6.0.0 automatically") || ev[0].User != "System" {
+		t.Fatalf("audit log: %+v", ev[0])
+	}
+
+	// A version the agent refuses is tried once, not at every check.
+	_, other, _ := ed25519.GenerateKey(rand.Reader)
+	writeAgents(t, s.cfg.AgentsDir, "0.7.0.0", []byte("the new agent"), other)
+	s.autoUpdateAgents(context.Background())
+	s.autoUpdateAgents(context.Background())
+	failed := 0
+	for _, e := range s.events(10) {
+		if strings.Contains(e.Detail, "to 0.7.0.0 failed") {
+			failed++
+		}
+	}
+	if failed != 1 {
+		t.Fatalf("refused version tried %d times", failed)
 	}
 }

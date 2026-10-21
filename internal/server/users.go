@@ -18,8 +18,10 @@ import (
 // Activity page. Jobs carry their own "started by".
 func (s *Server) event(r *http.Request, action, detail string) {
 	who := "System"
-	if u := userFrom(r); u != nil {
-		who = u.Name
+	if r != nil {
+		if u := userFrom(r); u != nil {
+			who = u.Name
+		}
 	}
 	s.store.db.Exec(`INSERT INTO events (at, user_label, action, detail) VALUES (?, ?, ?, ?)`, nowDB(), who, action, detail)
 }

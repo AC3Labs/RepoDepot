@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -196,3 +198,59 @@ func (s *Server) pushAgentUpdate(ctx context.Context, m *Machine) (string, error
 }
 
 var agentUpdatePoll = 2 * time.Second
+
+// agentTried remembers "<machine id>@<version>" once an automatic update was
+// tried, so an agent that refuses a version (say Windows Smart App Control)
+// isn't asked again every few minutes. Updating by hand still works.
+var agentTried sync.Map
+
+// autoUpdateAgents sends every agent that's behind this server its new
+// version, without anyone pressing a button (Settings → Updates). Runs after
+// each machine check.
+func (s *Server) autoUpdateAgents(ctx context.Context) {
+	if !s.settings.Bool("agent_auto_update") {
+		return
+	}
+	machines, _ := s.store.Machines()
+	var wg sync.WaitGroup
+	for _, m := range machines {
+		info := s.agentUpdateFor(m)
+		if !info.CanPush {
+			continue
+		}
+		key := fmt.Sprintf("%d@%s", m.ID, info.To)
+		if _, tried := agentTried.LoadOrStore(key, true); tried {
+			continue
+		}
+		if _, busy := agentUpdating.LoadOrStore(m.ID, true); busy {
+			agentTried.Delete(key)
+			continue
+		}
+		wg.Add(1)
+		go func(m *Machine) {
+			defer wg.Done()
+			defer agentUpdating.Delete(m.ID)
+			from := m.AgentVersion
+			c, cancel := context.WithTimeout(ctx, 4*time.Minute)
+			defer cancel()
+			version, err := s.pushAgentUpdate(c, m)
+			switch {
+			case errors.Is(err, errAgentCurrent):
+			case err != nil && strings.Contains(err.Error(), "middle of a job"):
+				agentTried.Delete(key) // try again at the next check
+			case err != nil:
+				log.Printf("automatic agent update on %s failed: %v", m.Name, err)
+				s.event(nil, "agent.update", fmt.Sprintf("Automatic agent update on %s to %s failed: %v", m.Name, info.To, err))
+				if s.settings.Bool("notify_failures") {
+					s.notify("Agent update failed: "+m.Name, err.Error(), "x", "/machines", nil)
+				}
+			default:
+				s.event(nil, "agent.update", fmt.Sprintf("Updated the agent on %s from %s to %s automatically", m.Name, from, version))
+				if s.settings.Bool("notify_done") {
+					s.notify("Agent updated: "+m.Name, from+" → "+version, "white_check_mark", "/machines", nil)
+				}
+			}
+		}(m)
+	}
+	wg.Wait()
+}

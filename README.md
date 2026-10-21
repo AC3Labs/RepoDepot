@@ -65,8 +65,11 @@ can give it jobs.
 
 ### Updating agents
 
-When the server has a newer agent than a machine, the Machines page shows
-**Update agent** on it (and **Update all agents**), for admins. The server
+Agents update themselves: after each machine check, the server sends any
+agent that's behind it the new version (Settings → Updates → Update agents
+automatically, on by default). Each version is tried once per machine, and a
+failure is notified. The Machines page also has **Update agent** and
+**Update all agents** buttons, for admins. The server
 sends the agent its new version; the agent checks it, runs it once to make
 sure it starts on that machine, swaps it in and restarts, keeping the old
 one beside it as `.old`. It refuses while it's in the middle of a job.

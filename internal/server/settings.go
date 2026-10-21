@@ -57,6 +57,7 @@ var settingDefs = []Setting{
 	{Key: "auto_update_window", Section: "updates", Label: "Only auto-update at set hours", Help: "Automatic updates wait for the hours below (in the time zone from General). Updates you start yourself run straight away.", Type: "bool", Default: "false"},
 	{Key: "auto_update_start", Section: "updates", Label: "Auto-update from (hour, 0–23)", Type: "int", Default: "2", Min: 0, Max: 23},
 	{Key: "auto_update_end", Section: "updates", Label: "Auto-update until (hour, 0–23)", Help: "The window can pass midnight, e.g. 22 to 5.", Type: "int", Default: "6", Min: 0, Max: 23},
+	{Key: "agent_auto_update", Section: "updates", Label: "Update agents automatically", Help: "When this server has a newer agent than a machine, send it to that machine straight away. Agents older than 0.5.0.0 need their install command once first.", Type: "bool", Default: "true"},
 	{Key: "max_parallel_jobs", Section: "updates", Label: "Jobs at once", Help: "How many installs or updates run at the same time.", Type: "int", Default: "3", Min: 1, Max: 20},
 
 	{Key: "default_track", Section: "installs", Label: "Track", Help: "What counts as an update for new installs. Releases are official versions; commits are every change pushed to the branch.", Type: "select", Default: "auto", Options: [][2]string{{"auto", "Releases when the repo has them, otherwise commits"}, {"release", "Releases"}, {"tag", "Tags"}, {"commit", "Commits"}}},

@@ -32,6 +32,7 @@ type Checker struct {
 func (s *Server) scheduler(ctx context.Context) {
 	time.Sleep(3 * time.Second)
 	s.checkMachines(ctx)
+	s.autoUpdateAgents(ctx)
 	if s.settings.Bool("check_enabled") {
 		s.checkUpdates(ctx)
 	}
@@ -54,6 +55,7 @@ func (s *Server) scheduler(ctx context.Context) {
 		if time.Since(lastMachines) >= time.Duration(s.settings.Int("machine_check_minutes"))*time.Minute {
 			lastMachines = time.Now()
 			s.checkMachines(ctx)
+			s.autoUpdateAgents(ctx)
 		}
 		if time.Since(lastClean) > 6*time.Hour {
 			lastClean = time.Now()

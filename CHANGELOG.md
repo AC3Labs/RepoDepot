@@ -2,6 +2,17 @@
 
 Versioned as `release.feature.fix.patch`.
 
+## [0.6.0.0] - 2026-10-21
+
+### Added
+- Agents update automatically: after each machine check the server sends
+  every agent that's behind it the new version, with no button to press
+  (Settings → Updates → Update agents automatically, on by default). Each
+  version is tried once per machine, so an agent that refuses it (Windows
+  Smart App Control) isn't asked again at every check; failures are
+  notified and recorded in the audit log. An agent busy with a job is
+  updated at the next check.
+
 ## [0.5.0.0] - 2026-10-21
 
 ### Added
