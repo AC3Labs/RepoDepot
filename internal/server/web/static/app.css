@@ -137,6 +137,7 @@ img { max-width: 100%; }
 .content { padding: 26px 28px 60px; max-width: 1500px; width: 100%; }
 .page-head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 22px; }
 .page-head .sub { color: var(--muted); margin-top: 4px; }
+.page-head > .grow { flex: 1 1 260px; } /* wraps the buttons below on narrow screens */
 .btn.menu-btn { display: none; }
 
 /* ---- search box ---- */

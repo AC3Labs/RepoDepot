@@ -2,6 +2,12 @@
 
 Versioned as `release.feature.fix.patch`.
 
+## [0.4.0.1] - 2026-10-20
+
+### Fixed
+- On phones the page heading no longer gets squeezed, with its buttons
+  covering the subtitle; the buttons wrap below it.
+
 ## [0.4.0.0] - 2026-10-20
 
 ### Added
