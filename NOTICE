@@ -8,4 +8,5 @@ Under section 4(d) of that license, every copy you distribute, including
 forks and modified versions, must keep this attribution notice.
 
 Third-party code bundled with this product:
-- Alpine.js, Copyright (c) 2019-2021 Caleb Porzio and contributors, MIT License.
+- Alpine.js (internal/server/web/static/alpine.min.js), MIT License; its
+  license text is in third_party/alpinejs-LICENSE.md.
