@@ -113,3 +113,19 @@ browser ── The Repo Depot server (Go, SQLite, :8470) ── GitHub API (cach
 
 Third-party code: [Alpine.js](https://alpinejs.dev) (MIT) for the page
 behaviour; Go modules listed in `go.mod`.
+
+## License
+
+The Repo Depot is open source under the [Apache License 2.0](LICENSE).
+Copyright 2026 AC3 Labs.
+
+You're free to use, change, fork and redistribute it, including
+commercially. Forks and modified versions must keep the [NOTICE](NOTICE)
+file, which credits AC3 Labs as the original creator, and must say that
+they changed the files. The licence doesn't let you use the AC3 Labs or
+The Repo Depot names to suggest that AC3 Labs made or endorses your
+version.
+
+**Use at your own risk.** The Repo Depot installs programs and runs
+commands on the machines you connect to it. It comes with no warranty
+(see LICENSE, sections 7 and 8).
