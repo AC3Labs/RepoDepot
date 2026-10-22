@@ -173,7 +173,7 @@
                 <div class="field"><label>Version installed now</label><input class="input mono" x-model="form.version" list="rd-versions" placeholder="e.g. v1.2.3">
                   <datalist id="rd-versions"><template x-for="r in (info.inspect.releases||[])" :key="r.tag_name"><option :value="r.tag_name"></option></template></datalist>
                   <span class="help" x-text="form.track==='commit' ? 'The commit it was built from.' : 'The tag or release name, exactly as on GitHub.'"></span></div>
-                <div class="field"><label>Its web address <span class="muted small">(optional)</span></label><input class="input" x-model="form.options.open_url" placeholder="http://192.168.0.70:8080"><span class="help">Adds an Open button.</span></div>
+                <div class="field"><label>Its web address <span class="muted small">(optional)</span></label><input class="input" x-model="form.options.open_url" placeholder="http://192.168.1.10:8080"><span class="help">Adds an Open button.</span></div>
               </div>
               <template x-for="m in fits.filter(f=>form.machines.includes(f.id))" :key="'t'+m.id">
                 <div class="field"><label x-text="'Where it is on '+m.name"></label><input class="input mono" x-model="form.dirs[m.id]" placeholder="/home/me/apps/thing"></div>
@@ -217,7 +217,7 @@
               </template>
               <div class="field" x-show="form.method!=='source' && form.method!=='track'"><label>Command after install <span class="muted small">(optional)</span></label><input class="input mono" x-model="form.options.post_install" placeholder=""></div>
               <label class="switch" x-show="form.method!=='track'"><input type="checkbox" x-model="form.auto_update"><span class="track"></span><span>Install updates automatically</span></label>
-              <div class="field" x-show="form.method!=='track'"><label>Its web address <span class="muted small">(optional)</span></label><input class="input" x-model="form.options.open_url" placeholder="http://192.168.0.70:8080"><span class="help">Adds an Open button.</span></div>
+              <div class="field" x-show="form.method!=='track'"><label>Its web address <span class="muted small">(optional)</span></label><input class="input" x-model="form.options.open_url" placeholder="http://192.168.1.10:8080"><span class="help">Adds an Open button.</span></div>
               <label class="switch"><input type="checkbox" x-model="form.notify"><span class="track"></span><span>Notify me about updates</span></label>
             </div>
           </details>

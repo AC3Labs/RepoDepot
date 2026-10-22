@@ -18,10 +18,10 @@ import (
 	"strings"
 	"time"
 
-	"repodepot/internal/spec"
+	"github.com/AC3Labs/RepoDepot/internal/spec"
 )
 
-// Version is set at build time (-ldflags "-X repodepot/internal/agent.Version=...").
+// Version is set at build time (-ldflags "-X github.com/AC3Labs/RepoDepot/internal/agent.Version=...").
 var Version = "dev"
 
 type Config struct {

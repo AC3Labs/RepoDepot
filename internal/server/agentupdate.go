@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"repodepot/internal/agent"
-	"repodepot/internal/spec"
+	"github.com/AC3Labs/RepoDepot/internal/agent"
+	"github.com/AC3Labs/RepoDepot/internal/spec"
 )
 
 // Updating agents from the Machines page. The server sends the agent build

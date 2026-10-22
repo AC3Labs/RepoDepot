@@ -21,8 +21,8 @@ import (
 	"testing"
 	"time"
 
-	"repodepot/internal/agent"
-	"repodepot/internal/spec"
+	"github.com/AC3Labs/RepoDepot/internal/agent"
+	"github.com/AC3Labs/RepoDepot/internal/spec"
 )
 
 // updatableAgent answers like a real agent: it checks an update's

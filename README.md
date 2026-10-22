@@ -43,9 +43,16 @@ Not affiliated with or endorsed by GitHub, Inc.
 
 ## Run it
 
+On any Linux machine with Docker:
+
 ```sh
+curl -fsSLO https://raw.githubusercontent.com/AC3Labs/RepoDepot/main/docker-compose.yml
 docker compose up -d     # http://<server>:8470
 ```
+
+The image is `ghcr.io/ac3labs/repodepot` (`:latest`, or a version such as
+`:0.6.1.0`). Your data lives in the `repodepot_data` volume. To update the
+server, `docker compose pull && docker compose up -d`.
 
 Open it, create your account, then **Machines → Add machine**. It gives you a
 one-line command for that machine:
@@ -75,8 +82,9 @@ sure it starts on that machine, swaps it in and restarts, keeping the old
 one beside it as `.old`. It refuses while it's in the middle of a job.
 
 Agents only install an update signed with The Repo Depot's release key
-(Ed25519; the public half is built into the agent, the private half never
-leaves the build machine), and never an older version. So a machine's token
+(Ed25519; the public half is built into the agent, the private half is a
+GitHub Actions secret, used only by the release build), and never an older
+version. So a machine's token
 alone can't make an agent run a program of someone's choosing.
 
 Agents older than 0.5.0.0 can't update themselves: run the install command
@@ -85,6 +93,24 @@ shows it). Running the install command again always updates the agent too.
 
 On Windows with Smart App Control on, Windows may block a new, unsigned
 agent build. The agent then stays as it is and the Machines page says why.
+
+## Releases and code signing
+
+Every release is built by GitHub Actions from the tagged source
+(`.github/workflows/release.yml`): the server image on GHCR, and a GitHub
+release with the agents, `manifest.json` (their checksums and update
+signatures), `SHA256SUMS` and the install scripts. Nothing released is
+built on a developer's machine.
+
+**Code signing policy.** The agents' update signatures are made only by the
+release workflow. Windows code signing (Authenticode) for the agent is being
+set up through the [SignPath Foundation](https://signpath.org) open-source
+programme; until then the Windows agent is unsigned, and Windows Smart App
+Control may block it (see above). Committers and approvers: AC3 Labs
+([@AC3Labs](https://github.com/AC3Labs)). Privacy: The Repo Depot only
+contacts GitHub (to find and download software), its own agents, and the
+email, webhook or ntfy services you set up in Settings. It sends nothing
+anywhere else.
 
 ## Build
 

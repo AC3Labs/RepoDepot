@@ -16,7 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"repodepot/internal/spec"
+	"github.com/AC3Labs/RepoDepot/internal/spec"
 )
 
 // ---- update checks ----

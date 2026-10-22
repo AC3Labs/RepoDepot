@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"repodepot/internal/spec"
+	"github.com/AC3Labs/RepoDepot/internal/spec"
 )
 
 func makeTgz(t *testing.T, files map[string]string) []byte {

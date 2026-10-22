@@ -2,7 +2,7 @@
 # (Machines -> Add machine gives you the one-line command).
 services:
   repodepot:
-    image: repodepot:latest
+    image: ghcr.io/ac3labs/repodepot:latest
     container_name: repodepot
     restart: unless-stopped
     ports:

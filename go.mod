@@ -1,4 +1,4 @@
-module repodepot
+module github.com/AC3Labs/RepoDepot
 
 go 1.27.3
 

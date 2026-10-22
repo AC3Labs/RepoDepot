@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"repodepot/internal/spec"
+	"github.com/AC3Labs/RepoDepot/internal/spec"
 )
 
 // run carries out one job and returns where the app lives, for display.

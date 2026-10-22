@@ -2,6 +2,24 @@
 
 Versioned as `release.feature.fix.patch`.
 
+## [0.6.1.0] - 2026-10-21
+
+First public release, on GitHub at AC3Labs/RepoDepot.
+
+### Added
+- Apache License 2.0, with a NOTICE crediting AC3 Labs as the original
+  creator (forks and modified versions keep it).
+- Releases are built by GitHub Actions from the tagged source: the server
+  image `ghcr.io/ac3labs/repodepot`, and a GitHub release with the agents,
+  their signed manifest, checksums and install scripts. Tests run on every
+  push.
+- `docker-compose.yml` uses the published image, so the server installs
+  without building anything.
+
+### Changed
+- Go module path is now `github.com/AC3Labs/RepoDepot`.
+- Example addresses in the forms are generic.
+
 ## [0.6.0.0] - 2026-10-21
 
 ### Added

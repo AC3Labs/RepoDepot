@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"repodepot/internal/spec"
+	"github.com/AC3Labs/RepoDepot/internal/spec"
 )
 
 type Machine struct {

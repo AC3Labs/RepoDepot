@@ -12,7 +12,7 @@ import (
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 
-	"repodepot/internal/agent"
+	"github.com/AC3Labs/RepoDepot/internal/agent"
 )
 
 const serviceName = "RepoDepotAgent"

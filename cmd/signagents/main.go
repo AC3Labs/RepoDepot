@@ -23,8 +23,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"repodepot/internal/agent"
-	"repodepot/internal/server"
+	"github.com/AC3Labs/RepoDepot/internal/agent"
+	"github.com/AC3Labs/RepoDepot/internal/server"
 )
 
 var platforms = [][2]string{{"linux", "amd64"}, {"linux", "arm64"}, {"windows", "amd64"}}

@@ -37,7 +37,7 @@ var settingSections = [][2]string{
 
 var settingDefs = []Setting{
 	{Key: "site_name", Section: "general", Label: "Name", Help: "Shown in the sidebar, page titles and notifications.", Type: "text", Default: "The Repo Depot"},
-	{Key: "public_url", Section: "general", Label: "Public address", Help: "How you reach this app, e.g. http://192.168.0.70:8470 or https://depot.example.com. Used in notification links. Empty: the address you're using now.", Type: "url"},
+	{Key: "public_url", Section: "general", Label: "Public address", Help: "How you reach this app, e.g. http://192.168.1.10:8470 or https://depot.example.com. Used in notification links. Empty: the address you're using now.", Type: "url"},
 	{Key: "timezone", Section: "general", Label: "Time zone", Help: "For auto-update hours and backup names, e.g. America/New_York or Europe/London. Empty: the server's own (often UTC in Docker).", Type: "timezone"},
 	{Key: "theme", Section: "general", Label: "Theme", Type: "select", Default: "dark", Options: [][2]string{{"dark", "Dark"}, {"light", "Light"}, {"system", "Match my device"}}},
 	{Key: "density", Section: "general", Label: "Layout density", Type: "select", Default: "comfortable", Options: [][2]string{{"comfortable", "Comfortable"}, {"compact", "Compact"}}},

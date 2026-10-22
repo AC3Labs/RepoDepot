@@ -11,7 +11,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"repodepot/internal/agent"
+	"github.com/AC3Labs/RepoDepot/internal/agent"
 )
 
 func main() {

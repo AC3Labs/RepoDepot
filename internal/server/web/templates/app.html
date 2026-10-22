@@ -112,7 +112,7 @@
       <div class="field" style="grid-column:1/-1"><label>Update command <span class="muted small">(optional)</span></label><input class="input mono" x-model="s.options.update_command" placeholder="docker compose pull && docker compose up -d"><span class="help">Run in that folder on the machine to update it. With one, The Repo Depot can update this app itself (Update, Update selected, automatic updates). The new version is in $REPODEPOT_REF.</span></div>
     </div>
     <div class="row mt"><img class="logo s" :src="a.logo_url" alt="" width="36" height="36"><span class="small dim grow">Logo, found in the repo</span><button class="btn sm" @click="findLogo()">{{template "i-refresh"}}Find logo again</button></div>
-    <div class="field mt"><label>Its web address</label><input class="input" x-model="s.options.open_url" placeholder="http://192.168.0.70:8080" style="max-width:520px"><span class="help">Adds an Open button.</span></div>
+    <div class="field mt"><label>Its web address</label><input class="input" x-model="s.options.open_url" placeholder="http://192.168.1.10:8080" style="max-width:520px"><span class="help">Adds an Open button.</span></div>
     <div class="col mt">
       <label class="switch" x-show="a.method!=='track' || s.options.update_command.trim()"><input type="checkbox" x-model="s.auto_update"><span class="track"></span><span>Install updates automatically</span></label>
       <label class="switch"><input type="checkbox" x-model="s.notify"><span class="track"></span><span>Notify me about updates</span></label>

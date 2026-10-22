@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"repodepot/internal/agent"
+	"github.com/AC3Labs/RepoDepot/internal/agent"
 )
 
 // fakeGitHub serves just enough of GitHub's API for one repo, me/tool,

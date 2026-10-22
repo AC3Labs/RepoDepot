@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"repodepot/internal/spec"
+	"github.com/AC3Labs/RepoDepot/internal/spec"
 )
 
 const maxLogLines = 3000

@@ -11,7 +11,7 @@ import (
 	"syscall"
 	_ "time/tzdata" // time zone names work even where the system has none
 
-	"repodepot/internal/server"
+	"github.com/AC3Labs/RepoDepot/internal/server"
 )
 
 func main() {

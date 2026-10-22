@@ -19,7 +19,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"repodepot/internal/spec"
+	"github.com/AC3Labs/RepoDepot/internal/spec"
 )
 
 // ---- setup & login ----

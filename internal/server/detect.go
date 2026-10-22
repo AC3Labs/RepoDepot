@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"repodepot/internal/spec"
+	"github.com/AC3Labs/RepoDepot/internal/spec"
 )
 
 // Inspection is what The Repo Depot can tell about installing a repo.
