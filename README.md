@@ -102,15 +102,27 @@ release with the agents, `manifest.json` (their checksums and update
 signatures), `SHA256SUMS` and the install scripts. Nothing released is
 built on a developer's machine.
 
-**Code signing policy.** The agents' update signatures are made only by the
-release workflow. Windows code signing (Authenticode) for the agent is being
-set up through the [SignPath Foundation](https://signpath.org) open-source
-programme; until then the Windows agent is unsigned, and Windows Smart App
-Control may block it (see above). Committers and approvers: AC3 Labs
-([@AC3Labs](https://github.com/AC3Labs)). Privacy: The Repo Depot only
-contacts GitHub (to find and download software), its own agents, and the
-email, webhook or ntfy services you set up in Settings. It sends nothing
-anywhere else.
+### Code signing policy
+
+Windows builds of the agent are being set up for free code signing provided
+by [SignPath.io](https://about.signpath.io), certificate by
+[SignPath Foundation](https://signpath.org). Until that's in place the
+Windows agent is unsigned, and Windows Smart App Control may block it (see
+above).
+
+- Signed files are built only by the release workflow above, from this
+  repository's source; nothing built elsewhere is signed.
+- Committers and reviewers: [AC3 Labs](https://github.com/AC3Labs)
+- Approvers (every release is approved by hand before signing):
+  [AC3 Labs](https://github.com/AC3Labs)
+- The agents' update signatures (Ed25519) are also made only by the release
+  workflow.
+
+**Privacy:** this program will not transfer any information to other
+networked systems unless specifically requested by the user or the person
+installing or operating it. It contacts GitHub (to find and download the
+software you choose), its own agents, and only the email, webhook or ntfy
+services you set up in Settings.
 
 ## Build
 
